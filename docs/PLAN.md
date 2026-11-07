@@ -24,6 +24,7 @@ Items marked **(verify)** are assumptions to confirm during the Phase 0 spike.
 | TLS | Bring-your-own cert files with hot reload; Let's Encrypt via DNS-01 recipes; no ACME in the app | [0005](adr/0005-tls-lets-encrypt.md) |
 | Switch delivery | Zip download and FTP push to `ftpd`; SimpleModManager-compatible library layout | [0006](adr/0006-switch-delivery.md) |
 | Switch app | Separate repo `dreadovania-nx`, using this server's OpenAPI spec as its contract | [0007](adr/0007-separate-nro-repo.md) |
+| Web UI | Server-rendered (Jinja + htmx), no Node.js toolchain | [0011](adr/0011-phase1-plan.md) |
 | Dependency updates | Dependabot (pip/uv, Docker digests, Actions SHAs) | [0008](adr/0008-ci-supply-chain.md) |
 | Authorship and sign-off | Claude authors; maintainer certifies each merge with a DCO sign-off | [0009](adr/0009-claude-authorship-and-dco.md) |
 
@@ -32,7 +33,7 @@ Items marked **(verify)** are assumptions to confirm during the Phase 0 spike.
 | Phase | Scope | Needs game files? |
 |---|---|---|
 | **0. Spike** | Confirm Randovania's CLI generates a Dread seed headless in a Debian-slim container. Confirm how Dread *export* can be triggered without the GUI. Check Qt headless needs. | No |
-| **1. Generate** | Web UI, setup wizard and authentication, TLS support, the full CI/CD pipeline. | No |
+| **1. Generate** ([ADR 0011](adr/0011-phase1-plan.md)) | Web UI, setup wizard and authentication, TLS support, the full CI/CD pipeline. | No |
 | **2. Patch** | Dread RomFS goes in, a mod comes out, and you can download it as a zip. | Yes (user-supplied) |
 | **3. Send to Switch** | FTP push to `ftpd` into a SimpleModManager-compatible library, with a saved Switch. | Yes |
 | **4. NRO** | `dreadovania-nx`: pair, generate, download and swap seeds on the Switch. | Yes |
@@ -80,14 +81,15 @@ Splitting the phases this way lets Phase 1 ship with zero copyrighted input.
 ## 4. Mobile web UI
 
 - **Backend:** FastAPI. Its generated OpenAPI spec is the official contract for `dreadovania-nx`.
-- **Frontend:** a static PWA (Svelte or Preact), built in CI and served by FastAPI.
-  There is no Node.js runtime in the final image.
+- **Frontend:** server-rendered pages (Jinja templates) with htmx, vendored and
+  hash-checked, served by FastAPI. No Node.js toolchain anywhere; installable as a
+  PWA ([ADR 0011](adr/0011-phase1-plan.md), superseding "static PWA (Svelte or Preact)").
 - **Jobs:** generation and patching run in a single-worker queue, with live progress over SSE.
 - **Screens:**
   - First-run setup wizard
   - Presets (import and export `.rdvpreset`)
   - Permalinks
-  - Seed history
+  - Seed history, with purge of all seeds or all older than *N* days
   - Spoiler log behind an explicit reveal step
   - Add Switch, with a connection test
   - Send to Switch
