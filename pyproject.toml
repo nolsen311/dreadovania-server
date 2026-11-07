@@ -8,7 +8,9 @@ license-files = ["LICENSE"]
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "fastapi>=0.162.2",
+    "open-dread-rando==2.21.0",
     "pydantic-settings>=2.16.2",
+    "randovania==12.0.0",
     "uvicorn>=0.54.0",
 ]
 
@@ -18,6 +20,7 @@ Source = "https://github.com/nolsen311/dreadovania-server"
 [dependency-groups]
 dev = [
     "httpx2>=2.16.0",
+    "packaging>=26.3",
     "pytest>=9.2.0",
     "ruff>=0.17.4",
 ]
@@ -27,6 +30,11 @@ requires = ["uv_build>=0.13.7,<0.14"]
 build-backend = "uv_build"
 
 [tool.uv]
+# Randovania 12.0.0 pins cryptography<49, which is affected by CVE-2026-69247,
+# CVE-2026-69248 and CVE-2026-69249 (fixed in 49/50). We override the pin; see
+# ADR 0010. tests/test_randovania_cli.py fails once Randovania allows a fixed
+# version itself, so this override is removed as soon as it is unnecessary.
+override-dependencies = ["cryptography>=50"]
 # Resolve for both platforms now so adding arm64 later needs no lockfile rework (ADR 0003).
 environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64'",

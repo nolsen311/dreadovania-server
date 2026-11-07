@@ -15,3 +15,4 @@ supersedes the old one; don't rewrite history.
 | [0007](0007-separate-nro-repo.md) | Switch app lives in a separate repository | Accepted |
 | [0008](0008-ci-supply-chain.md) | CI/CD supply-chain baseline | Accepted |
 | [0009](0009-claude-authorship-and-dco.md) | Claude authorship, maintainer sign-off (DCO) | Accepted |
+| [0010](0010-phase0-randovania-findings.md) | Phase 0: Randovania runs headless through its CLI | Accepted |

@@ -29,6 +29,13 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable
 
+# Randovania bundles a third-party Metroid Prime 2 randomizer for Windows,
+# including zlib1.dll (zlib 1.2.8, CVE-2016-9840..9843, CVE-2018-25032). Only the
+# Prime 1/2 exporters use it; this server is Dread-only (ADR 0001), so it never
+# runs here. Remove it rather than ignore the finding (ADR 0010, decision 7).
+RUN rm -rf /app/.venv/lib/python3.13/site-packages/randovania/data/ClarisPrimeRandomizer \
+ && ! find /app/.venv -type f \( -iname '*.exe' -o -iname '*.dll' \) | grep .
+
 # ---- runtime: no build tools, no uv, no source tree ----
 FROM python:3.13-slim-trixie@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637ea3e15580525bc AS runtime
 
