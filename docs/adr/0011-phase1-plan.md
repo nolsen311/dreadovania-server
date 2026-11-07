@@ -1,6 +1,6 @@
 # 0011. Phase 1 plan: jobs, generation API, sign-in, first screens
 
-- Status: **Proposed** (becomes Accepted once the open questions below are answered)
+- Status: Accepted (open questions answered by the maintainer on 2026-11-07; see the end of this ADR)
 - Date: 2026-11-07
 - Builds on ADR 0004 (auth), 0005 (TLS), 0007 (API contract), 0010 (Phase 0).
 
@@ -70,6 +70,7 @@ sign-in, security limits) and how the work is split into pull requests.
 | `GET /seeds/{id}/rdvgame` | download the `.rdvgame` |
 | `GET /seeds/{id}/spoiler` | the spoiler log: a **separate request**, so the UI can only show it after an explicit reveal; refused for race seeds |
 | `DELETE /seeds/{id}` | delete a seed and its files |
+| `POST /seeds/purge` | bulk delete, with an **explicit scope** in the body: `{"scope": "all"}` or `{"scope": "older_than", "days": N}`. Returns the count deleted. There is deliberately no bare `DELETE /seeds`, so a mistaken request can't wipe everything |
 | `GET /jobs/{id}`, `GET /jobs/{id}/events`, `DELETE /jobs/{id}` | status, live progress (SSE), cancel |
 
 - **Errors** use RFC 9457 `application/problem+json`.
@@ -105,9 +106,9 @@ sign-in, security limits) and how the work is split into pull requests.
 2. **Sign-in.** Setup token, setup wizard API, password, sessions, CSRF, rate
    limiting. After this, every endpoint added later is protected by default.
 3. **Generation API.** Presets, seeds and jobs endpoints from section 3, with SSE.
-4. **Mobile UI.** The first screens: setup, sign-in, generate, progress, seed
-   history and details, and spoiler reveal. The technology depends on open
-   question 1.
+4. **Mobile UI.** Server-rendered with htmx (answer 1). The first screens:
+   setup, sign-in, generate, progress, seed history and details, spoiler reveal,
+   and purge (with a confirmation step).
 5. **TLS and passkeys.** Bring-your-own certificates with hot reload, a trusted-proxy
    allowlist and hostname redirect (ADR 0005), and then passkeys.
 
@@ -123,30 +124,25 @@ an API without a UI or sign-in.
 - Security tests: unauthenticated access to every endpoint, cross-owner access,
   CSRF rejection, oversized and malformed uploads, permalink injection attempts.
 
-## Open questions for the maintainer
+## Maintainer decisions (2026-11-07)
 
-1. **UI technology.** The plan (§4 of `docs/PLAN.md`) says "static PWA (Svelte or Preact)".
-   - **A. Server-rendered pages (Jinja templates) with htmx.** *(Recommended.)*
-     No Node.js toolchain or npm dependency tree at all, which is a large
-     supply-chain reduction. htmx is one pinned, vendored file. It works well on
-     mobile, supports SSE progress, and can still be installed as a PWA. Passkeys
-     later need only a small hand-written script.
-   - **B. A Svelte single-page app,** built in CI. Richer client-side
-     interactivity, but it adds Node.js, npm, and a lockfile with hundreds of
-     transitive packages to audit and keep updated.
-2. **Spoilers by default.** Should a normal seed keep its spoiler log
-   (hidden behind a reveal step, as planned), or should **race mode** (no
-   spoiler at all) be the default?
-3. **Seed retention.** Keep every seed until you delete it (proposed), or keep
-   only the newest *N*?
-4. **Order.** Is PR 5 (TLS and passkeys) fine after the UI, or do you want
-   passkeys before you start using the UI?
+1. **UI technology: A, server-rendered pages (Jinja templates) with htmx.** No
+   Node.js toolchain or npm dependency tree. htmx is one pinned, vendored file
+   checked against a recorded hash, served from our own origin so the strict
+   CSP (`default-src 'self'`) is unchanged. The UI can still be installed as a
+   PWA. This **supersedes** "static PWA (Svelte or Preact)" in `docs/PLAN.md` §4.
+2. **Spoilers require a reveal step.** Normal seeds keep their spoiler log; the
+   UI shows it only after an explicit reveal, and the API serves it only on its
+   own endpoint. Race seeds (opt-in) have no spoiler.
+3. **Keep all seeds until the user deletes them.** The user can delete one seed,
+   or purge **all** seeds or **all seeds older than *N* days** (`POST /seeds/purge`
+   with an explicit scope; the UI asks for confirmation and shows how many
+   seeds will be deleted).
+4. **Passkeys come after the UI** (PR 5), together with the TLS work.
 
 ## Consequences
 
 - PRs 1–3 can be built and fully tested in Claude Code sessions; PR 4 benefits
   from you trying it on your phone.
-- New runtime dependency: `argon2-cffi` (PR 2). Option A adds htmx as a
-  vendored static file (PR 4); option B adds the Node.js build toolchain.
-- If answer 1 is A, `docs/PLAN.md` §4's "static PWA (Svelte or Preact)" is
-  superseded by this ADR.
+- New dependencies: `argon2-cffi` (PR 2), `jinja2` (PR 4), and htmx as a vendored,
+  hash-checked static file (PR 4). No Node.js toolchain.
