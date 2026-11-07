@@ -38,9 +38,21 @@ WARNINGS=()
 step() { printf '\n== %s\n' "$*"; }
 ok()   { printf '   ok    %s\n' "$*"; }
 warn() { printf '   WARN  %s\n' "$*"; WARNINGS+=("$*"); }
+todo() { printf '   TODO  %s\n' "$*"; TODOS+=("$*"); }
+TODOS=()
 
-# Read-only API call: always runs.
-get() { gh api "$@"; }
+# Report a change: "ok" when it was made, "plan" in dry-run mode.
+applied() {
+  if [ "$DRY_RUN" -eq 1 ]; then printf '   plan  %s\n' "$*"; else ok "$*"; fi
+}
+
+# Read-only API call: always runs. On an HTTP error it prints nothing and fails,
+# so GitHub's error JSON is never mistaken for data.
+get() {
+  local out
+  out="$(gh api "$@" 2>/dev/null)" || return 1
+  printf '%s\n' "$out"
+}
 
 # Mutating API call: printed in dry-run mode, otherwise run. Output is discarded;
 # failures are reported by the caller.
@@ -77,30 +89,30 @@ args=(-X PATCH "repos/$REPO"
   -F web_commit_signoff_required=true
   -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY)
 [ "$TEMPLATE" -eq 1 ] && args+=(-F is_template=true)
-if mutate "${args[@]}"; then ok "merge settings applied"; else warn "could not update merge settings"; fi
+if mutate "${args[@]}"; then applied "merge settings applied"; else warn "could not update merge settings"; fi
 
 # ---- security features ------------------------------------------------------
 step "Security features"
-if mutate -X PUT "repos/$REPO/vulnerability-alerts"; then ok "Dependabot alerts on"; else warn "could not enable Dependabot alerts"; fi
-if mutate -X PUT "repos/$REPO/automated-security-fixes"; then ok "Dependabot security updates on"; else warn "could not enable Dependabot security updates"; fi
-if mutate -X PUT "repos/$REPO/private-vulnerability-reporting"; then ok "private vulnerability reporting on"; else warn "could not enable private vulnerability reporting"; fi
+if mutate -X PUT "repos/$REPO/vulnerability-alerts"; then applied "Dependabot alerts on"; else warn "could not enable Dependabot alerts"; fi
+if mutate -X PUT "repos/$REPO/automated-security-fixes"; then applied "Dependabot security updates on"; else warn "could not enable Dependabot security updates"; fi
+if mutate -X PUT "repos/$REPO/private-vulnerability-reporting"; then applied "private vulnerability reporting on"; else warn "could not enable private vulnerability reporting"; fi
 if mutate -X PATCH "repos/$REPO" --input - <<'JSON'
 {"security_and_analysis": {"secret_scanning": {"status": "enabled"}, "secret_scanning_push_protection": {"status": "enabled"}}}
 JSON
-then ok "secret scanning and push protection on"
+then applied "secret scanning and push protection on"
 else warn "could not enable secret scanning (private repositories may need GitHub Advanced Security)"; fi
 
 # ---- GitHub Actions ---------------------------------------------------------
 step "GitHub Actions: read-only default token, full-SHA pinning required"
 if mutate -X PUT "repos/$REPO/actions/permissions/workflow" \
      -f default_workflow_permissions=read -F can_approve_pull_request_reviews=false; then
-  ok "default workflow token is read-only and cannot approve PRs"
+  applied "default workflow token is read-only and cannot approve PRs"
 else
   warn "could not set default workflow permissions"
 fi
 if mutate -X PUT "repos/$REPO/actions/permissions" \
      -F enabled=true -f allowed_actions=all -F sha_pinning_required=true; then
-  ok "actions must be pinned to a full commit SHA"
+  applied "actions must be pinned to a full commit SHA"
 else
   warn "could not require SHA pinning (set it under Settings > Actions > General)"
 fi
@@ -113,13 +125,13 @@ if mutate -X PUT "repos/$REPO/environments/release" --input - <<JSON
  "deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}
 JSON
 then
-  ok "release environment requires approval from $OWNER_LOGIN"
+  applied "release environment requires approval from $OWNER_LOGIN"
   existing_policy="$(get "repos/$REPO/environments/release/deployment-branch-policies" \
       --jq '.branch_policies[] | select(.name == "v*" and .type == "tag") | .id' 2>/dev/null || true)"
   if [ -n "$existing_policy" ]; then
     ok "tag policy v* already present"
   elif mutate -X POST "repos/$REPO/environments/release/deployment-branch-policies" -f name='v*' -f type=tag; then
-    ok "release environment limited to v* tags"
+    applied "release environment limited to v* tags"
   else
     warn "could not add the v* tag policy to the release environment"
   fi
@@ -134,24 +146,17 @@ for file in "$ROOT"/.github/rulesets/*.json; do
   name="$(jq -r '.name' "$file")"
   id="$(jq -r --arg n "$name" '.[] | select(.name == $n) | .id' <<<"$existing_rulesets")"
   if [ -n "$id" ]; then
-    if mutate -X PUT "repos/$REPO/rulesets/$id" --input "$file"; then ok "updated ruleset $name"; else warn "could not update ruleset $name"; fi
+    if mutate -X PUT "repos/$REPO/rulesets/$id" --input "$file"; then applied "updated ruleset $name"; else warn "could not update ruleset $name"; fi
   else
-    if mutate -X POST "repos/$REPO/rulesets" --input "$file"; then ok "created ruleset $name"; else warn "could not create ruleset $name"; fi
+    if mutate -X POST "repos/$REPO/rulesets" --input "$file"; then applied "created ruleset $name"; else warn "could not create ruleset $name"; fi
   fi
 done
 
 # ---- Claude GitHub App access -----------------------------------------------
-step "Claude GitHub App: grant access to $REPO"
-installation_id="$(get user/installations --paginate \
-    --jq '.installations[] | select(.app_slug == "claude") | .id' 2>/dev/null | head -n1 || true)"
-repo_id="$(get "repos/$REPO" --jq '.id')"
-if [ -z "$installation_id" ]; then
-  warn "Claude GitHub App installation not found; install it from https://github.com/apps/claude"
-elif mutate -X PUT "user/installations/$installation_id/repositories/$repo_id"; then
-  ok "Claude GitHub App can access $REPO"
-else
-  warn "could not add $REPO to the Claude app; add it under Settings > Applications > Claude > Configure"
-fi
+# GitHub only lets a token issued through an app list or change that app's
+# installations, so gh cannot do this step. It stays a manual action.
+step "Claude GitHub App: access to $REPO"
+todo "add $REPO to the Claude app: https://github.com/settings/installations > Claude > Configure > Repository access"
 
 # ---- DCO remediation entry for commits already on main ----------------------
 step "Commits on the default branch without a sign-off"
@@ -161,8 +166,12 @@ unsigned="$(get "repos/$REPO/commits?sha=$branch&per_page=100" \
   --jq '.[] | select(.commit.message | test("(?im)^Signed-off-by:") | not)
              | select(.commit.author.email | test("\\[bot\\]@users\\.noreply\\.github\\.com$") | not)
              | "| `\(.sha)` | \(.commit.message | split("\n")[0]) |"' 2>/dev/null || true)"
+recorded="$(grep -oE '[0-9a-f]{40}' "$ROOT/docs/dco-remediations.md" 2>/dev/null | sort -u || true)"
+if [ -n "$unsigned" ] && [ -n "$recorded" ]; then
+  unsigned="$(grep -vF -f <(printf '%s\n' "$recorded") <<<"$unsigned" || true)"
+fi
 if [ -z "$unsigned" ]; then
-  ok "every commit on $branch is signed off"
+  ok "every commit on $branch is signed off or recorded in docs/dco-remediations.md"
 else
   echo "   Add this entry to docs/dco-remediations.md in your first pull request,"
   echo "   then sign off when you merge it:"
@@ -180,8 +189,12 @@ fi
 # ---- summary ----------------------------------------------------------------
 step "Done"
 if [ "${#WARNINGS[@]}" -eq 0 ]; then
-  ok "all steps succeeded"
+  if [ "$DRY_RUN" -eq 1 ]; then ok "dry run complete; nothing was changed"; else ok "all automated steps succeeded"; fi
 else
   echo "   ${#WARNINGS[@]} step(s) need attention:"
   for w in "${WARNINGS[@]}"; do echo "   - $w"; done
+fi
+if [ "${#TODOS[@]}" -gt 0 ]; then
+  echo "   Manual step(s):"
+  for t in "${TODOS[@]}"; do echo "   - $t"; done
 fi
