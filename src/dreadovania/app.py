@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from importlib.metadata import version
@@ -9,13 +10,14 @@ from importlib.metadata import version
 from fastapi import FastAPI, Request, Response
 from pydantic import BaseModel
 
-from dreadovania import __version__
+from dreadovania import __version__, auth, problems, routes_auth
 from dreadovania.config import Settings
 from dreadovania.db import Database
 from dreadovania.jobs import JobQueue
 from dreadovania.runner import RandovaniaRunner
 
-API_PREFIX = "/api/v1"
+API_PREFIX = routes_auth.API_PREFIX
+log = logging.getLogger(__name__)
 
 # Baseline headers for every response. The CSP is strict because the UI will be a
 # static PWA served from this origin, with no third-party scripts or styles.
@@ -55,6 +57,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         max_queued_per_owner=settings.max_queued_jobs_per_user,
     )
     queue.recover_interrupted()
+    if auth.setup_required(db):
+        _announce_setup_link(settings, auth.create_setup_token(db))
     worker = asyncio.create_task(queue.run_worker(), name="job-worker")
     app.state.db, app.state.jobs = db, queue
     try:
@@ -63,6 +67,25 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         worker.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await worker
+
+
+def _announce_setup_link(settings: Settings, token: str) -> None:
+    """Print the one-time setup link (ADR 0004). Only its hash is stored.
+
+    The token goes in the URL fragment (after #), which browsers never send to
+    the server, so it can't end up in access logs or proxy logs.
+    """
+    base = (
+        auth.origin_of(str(settings.public_url))
+        if settings.public_url is not None
+        else f"http://<this-server>:{settings.port}"
+    )
+    lifetime = int(auth.SETUP_TOKEN_LIFETIME.total_seconds() // 60)
+    log.warning(
+        "\n%s\nFIRST-RUN SETUP: open this link to create your account (valid %d minutes;"
+        " restart the server for a new one):\n\n    %s/setup#token=%s\n%s",
+        "=" * 72, lifetime, base, token, "=" * 72,
+    )  # fmt: skip
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -77,6 +100,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
     )
     app.state.settings = settings if settings is not None else Settings()
+    app.state.login_limiter = auth.AttemptLimiter(**routes_auth.LOGIN_LIMIT)
+    app.state.setup_limiter = auth.AttemptLimiter(**routes_auth.SETUP_LIMIT)
+    problems.install(app)
+    app.include_router(routes_auth.public)
+    app.include_router(routes_auth.protected)
 
     @app.middleware("http")
     async def security_headers(

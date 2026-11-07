@@ -102,6 +102,22 @@ sign-in, security limits) and how the work is split into pull requests.
   overall, in memory, with increasing delays.
 - **Passkeys and device tokens** are designed into the tables now but built later:
   passkeys with the TLS work (step 5 below), device tokens in Phase 4.
+- **As built in PR 2:**
+  - The setup token goes in the link's URL fragment (`/setup#token=…`), which
+    browsers never send to the server, so it can't reach access or proxy logs.
+  - Passwords: 12–1024 characters; Argon2id with the library defaults, rehashed
+    on login if the defaults change. Unknown usernames are checked against a dummy
+    hash, so failures take the same time and return the same message.
+  - The `Origin` rule: cookie-authenticated changes **must** send a matching
+    `Origin`. Login and setup allow a missing `Origin` (a non-browser client
+    can't be tricked into a cross-site request) but refuse a mismatched one;
+    setup must come from the public URL being saved.
+  - A public URL set in `DREADOVANIA_PUBLIC_URL` overrides the one saved by setup.
+  - Limits per 15 minutes: login 10 failures per client and 100 overall; setup
+    10 attempts per client and 30 overall. Over the limit: 429 with `Retry-After`.
+  - Every `/api/v1` route is on a router that requires a session, except the
+    public setup, login and info routes. A test enumerates the OpenAPI document
+    so a new route can't be left unprotected by accident.
 
 ### 5. Pull requests, in order
 
