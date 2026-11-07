@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 #
 # Every base image is pinned by multi-arch index digest, so the same line works
 # for linux/amd64 and linux/arm64 (ADR 0003). Dependabot updates the digests.
@@ -7,7 +7,7 @@
 FROM ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv
 
 # ---- build: resolve the locked dependencies into a virtualenv ----
-FROM python:3.13-slim-trixie@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 AS build
+FROM python:3.13-slim-trixie@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637ea3e15580525bc AS build
 
 COPY --from=uv /uv /usr/local/bin/uv
 
@@ -30,7 +30,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable
 
 # ---- runtime: no build tools, no uv, no source tree ----
-FROM python:3.13-slim-trixie@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 AS runtime
+FROM python:3.13-slim-trixie@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637ea3e15580525bc AS runtime
 
 LABEL org.opencontainers.image.title="Dreadovania Server" \
       org.opencontainers.image.description="Self-hosted server for Metroid Dread Randovania seeds. Contains no game content." \
