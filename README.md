@@ -43,14 +43,14 @@ uv sync
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
 uv run python scripts/export_openapi.py   # after changing the API
-uv run python -m dreadovania              # serve on http://localhost:8080
+DREADOVANIA_DATA_DIR=./data uv run python -m dreadovania   # serve on http://localhost:8080
 ```
 
 To build and run the container:
 
 ```bash
 docker build -t dreadovania:dev .
-docker run --rm -p 8080:8080 --read-only --cap-drop ALL dreadovania:dev
+docker run --rm -p 8080:8080 --read-only --cap-drop ALL -v dreadovania-data:/data dreadovania:dev
 ```
 
 [`compose.yaml`](compose.yaml) shows a full hardened deployment of the published image.
