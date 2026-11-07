@@ -24,6 +24,28 @@ policy in [`docs/PLAN.md`](docs/PLAN.md#3-user-supplied-content-and-the-legal-li
 Dreadovania is an unofficial fan project. It is not affiliated with or endorsed
 by Nintendo or the Randovania team. All trademarks belong to their owners.
 
+## Development
+
+Requires [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv sync
+uv run pytest
+uv run ruff check . && uv run ruff format --check .
+uv run python scripts/export_openapi.py   # after changing the API
+uv run python -m dreadovania              # serve on http://localhost:8080
+```
+
+To build and run the container:
+
+```bash
+docker build -t dreadovania:dev .
+docker run --rm -p 8080:8080 --read-only --cap-drop ALL dreadovania:dev
+```
+
+[`compose.yaml`](compose.yaml) shows a full hardened deployment of the published image.
+See [`SECURITY.md`](SECURITY.md) for reporting vulnerabilities and verifying release images.
+
 ## License
 
 [GPL-3.0](LICENSE), matching Randovania.

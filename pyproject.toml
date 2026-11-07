@@ -1,0 +1,55 @@
+[project]
+name = "dreadovania"
+version = "0.1.0"
+description = "Self-hosted web server for generating and patching Randovania seeds for Metroid Dread."
+readme = "README.md"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "fastapi>=0.162.2",
+    "pydantic-settings>=2.16.2",
+    "uvicorn>=0.54.0",
+]
+
+[project.urls]
+Source = "https://github.com/nolsen311/dreadovania-server"
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.16.0",
+    "pytest>=9.2.0",
+    "ruff>=0.17.4",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv]
+# Resolve for both platforms now so adding arm64 later needs no lockfile rework (ADR 0003).
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
+required-environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests build throwaway git repos with fixed argument lists.
+"tests/**" = ["S101", "S603", "S607"]
+# The content guard calls git with a fixed argument list.
+"scripts/content_guard.py" = ["S603", "S607"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"

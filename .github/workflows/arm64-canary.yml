@@ -1,0 +1,105 @@
+name: arm64 test build
+
+# Weekly, non-blocking check that the project still builds and runs on arm64
+# (ADR 0003). Publishes nothing. On failure it opens (or comments on) a tracking
+# issue; when the build passes again it closes that issue.
+on:
+  schedule:
+    - cron: "23 6 * * 1" # Mondays 06:23 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: arm64-canary
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.13.7"
+  PYTHON_VERSION: "3.13"
+  ISSUE_TITLE: "arm64 test build is failing"
+
+jobs:
+  build:
+    name: Build and test on arm64
+    # Native GitHub-hosted arm64 runner (free for public repositories), no emulation.
+    # harden-runner is omitted here until its arm64 runner support is confirmed.
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Locked dependencies install and tests pass on arm64
+        run: uv run --locked pytest
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build arm64 image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/arm64
+          load: true
+          push: false
+          provenance: false
+          tags: dreadovania:arm64
+      - name: Smoke test
+        run: |
+          install -d -m 0777 "${RUNNER_TEMP}/data"
+          docker run -d --name smoke -p 8080:8080 --read-only --tmpfs /tmp --cap-drop ALL \
+            --security-opt no-new-privileges:true -v "${RUNNER_TEMP}/data:/data" dreadovania:arm64
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/healthz; then exit 0; fi
+            sleep 1
+          done
+          docker logs smoke
+          exit 1
+
+  report:
+    name: Update tracking issue
+    needs: build
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+        with:
+          script: |
+            const title = process.env.ISSUE_TITLE;
+            const result = process.env.BUILD_RESULT;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const open = await github.paginate(github.rest.issues.listForRepo, {
+              ...context.repo, state: "open", creator: "github-actions[bot]", per_page: 100,
+            });
+            const existing = open.find((i) => i.title === title && !i.pull_request);
+
+            if (result === "success") {
+              if (existing) {
+                await github.rest.issues.createComment({
+                  ...context.repo, issue_number: existing.number,
+                  body: `The arm64 test build passes again: ${runUrl}`,
+                });
+                await github.rest.issues.update({
+                  ...context.repo, issue_number: existing.number, state: "closed", state_reason: "completed",
+                });
+              }
+              return;
+            }
+
+            const body = `The weekly arm64 test build finished with \`${result}\`: ${runUrl}\n\n` +
+              "This doesn't block PRs or releases, but should be fixed before arm64 images are published (ADR 0003).";
+            if (existing) {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: existing.number, body });
+            } else {
+              await github.rest.issues.create({ ...context.repo, title, body });
+            }

@@ -13,7 +13,8 @@ Adopt the CI/CD baseline in [`docs/PLAN.md` §7](../PLAN.md#7-cicd-supply-chain)
 
 - Every action pinned to a full SHA, with minimal per-job permissions.
 - `uv` lockfile with hashes; `pip-audit`, OSV-Scanner and CodeQL.
-- Images pinned by digest, scanned with Trivy, built with buildx.
+- Images pinned by digest, built with buildx, and scanned with Grype. Releases push by
+  digest, scan every platform, and apply tags only after the scan passes.
 - A content guard that rejects game files and keys.
 - Releases built from tags only: SBOM, SLSA provenance, cosign keyless signing, published to GHCR.
 - OpenSSF Scorecard.

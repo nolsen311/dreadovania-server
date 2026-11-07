@@ -53,8 +53,9 @@ Splitting the phases this way lets Phase 1 ship with zero copyrighted input.
 - Pin Randovania to an exact version. `.rdvgame` files and permalinks are version-bound,
   so show the version in the UI and in every seed's details.
 - Ship only the Dread toolchain (`open-dread-rando`, `mercury-engine-data-structures`).
-- Qt/PySide6 in a headless container: check whether `QT_QPA_PLATFORM=offscreen` and
-  the Qt system libraries are required **(verify)**.
+- Qt/PySide6: in Randovania 12.0.0, PySide6 is only in the optional `gui` extra, so the
+  core install needs no Qt. Confirm that export works without it **(verify)**.
+- Install only `open-dread-rando` rather than the `exporters` extra, which pulls in every game's patcher.
 - License: GPL-3.0, matching Randovania. The image carries OCI source labels and a
   `SOURCE.md` pointing to the exact source of every bundled GPL component.
 - Upstream: draft a friendly note to the Randovania developers before announcing publicly.
@@ -155,7 +156,8 @@ Splitting the phases this way lets Phase 1 ship with zero copyrighted input.
 **Image**
 - Multi-stage build on Debian slim, pinned by digest.
 - Built with `docker buildx`; the target platforms are one variable.
-- Scanned with Trivy and fails on high or critical findings.
+- Scanned with Grype (from Anchore, which also makes the Syft SBOM tool) and fails on fixable high or
+  critical findings. Releases push by digest, scan every platform, and only then apply tags.
 - The content guard (section 3) runs on every PR.
 
 **Releases**
@@ -172,7 +174,7 @@ Splitting the phases this way lets Phase 1 ship with zero copyrighted input.
 ## Open items to verify (Phase 0)
 
 1. Whether Randovania's CLI covers Dread export, or the adapter is needed.
-2. Qt/PySide6 headless requirements and their effect on image size.
+2. ~~Qt/PySide6 headless requirements~~: core needs no Qt (PySide6 is the `gui` extra). Confirm export works without it.
 3. Supported Dread versions and their hashes; whether ExeFS is needed.
 4. That the Dread toolchain resolves for arm64 (for the weekly test build).
 5. SimpleModManager's license, library layout, and how cleanly its core logic separates from its UI.
