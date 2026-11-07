@@ -7,6 +7,7 @@ license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    "argon2-cffi>=25.1.0",
     "fastapi>=0.162.2",
     "open-dread-rando==2.21.0",
     "pydantic-settings>=2.16.2",
@@ -53,8 +54,9 @@ target-version = "py313"
 select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
-# Tests build throwaway git repos with fixed argument lists.
-"tests/**" = ["S101", "S603", "S607"]
+# Tests build throwaway git repos with fixed argument lists, and use fixed fake
+# passwords (S105-S107); neither is allowed outside tests.
+"tests/**" = ["S101", "S105", "S106", "S107", "S603", "S607"]
 # The content guard calls git with a fixed argument list.
 "scripts/content_guard.py" = ["S603", "S607"]
 
