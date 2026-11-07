@@ -17,8 +17,8 @@ Items marked **(verify)** are assumptions to confirm during the Phase 0 spike.
 | Topic | Decision | ADR |
 |---|---|---|
 | Games | Metroid Dread only, for generating and patching | [0001](adr/0001-dread-only.md) |
-| Randovania integration | CLI first; one small adapter module where the CLI is not enough | [0002](adr/0002-randovania-integration.md) |
-| Platforms | x86-64 first; arm64-ready with no rework; weekly arm64 test build | [0003](adr/0003-x86-first-arm64-ready.md) |
+| Randovania integration | CLI only (Phase 0 found no adapter needed); Randovania and the Dread patcher pinned together | [0002](adr/0002-randovania-integration.md), [0010](adr/0010-phase0-randovania-findings.md) |
+| Platforms | x86-64 first; arm64-ready with no rework; weekly arm64 test build; arm64 image blocked on `py-tegra-swizzle` wheels | [0003](adr/0003-x86-first-arm64-ready.md), [0010](adr/0010-phase0-randovania-findings.md) |
 | Users | Single user now; every record has an `owner_id` so accounts can be added later | [0004](adr/0004-auth.md) |
 | Sign-in | Setup wizard; passkeys and autofill-friendly password; device tokens for the NRO | [0004](adr/0004-auth.md) |
 | TLS | Bring-your-own cert files with hot reload; Let's Encrypt via DNS-01 recipes; no ACME in the app | [0005](adr/0005-tls-lets-encrypt.md) |
@@ -54,9 +54,9 @@ Splitting the phases this way lets Phase 1 ship with zero copyrighted input.
 - Pin Randovania to an exact version. `.rdvgame` files and permalinks are version-bound,
   so show the version in the UI and in every seed's details.
 - Ship only the Dread toolchain (`open-dread-rando`, `mercury-engine-data-structures`).
-- Qt/PySide6: in Randovania 12.0.0, PySide6 is only in the optional `gui` extra, so the
-  core install needs no Qt. Confirm that export works without it **(verify)**.
-- Install only `open-dread-rando` rather than the `exporters` extra, which pulls in every game's patcher.
+- Phase 0 (ADR 0010) confirmed: no Qt is needed (PySide6 is the `gui` extra), and only
+  `open-dread-rando` is installed rather than the `exporters` extra, which pulls in every
+  game's patcher. Generation and export both run headless through the CLI.
 - License: GPL-3.0-or-later, compatible with Randovania. The image carries OCI source labels and a
   `SOURCE.md` pointing to the exact source of every bundled GPL component.
 - Upstream: draft a friendly note to the Randovania developers before announcing publicly.
@@ -172,11 +172,18 @@ Splitting the phases this way lets Phase 1 ship with zero copyrighted input.
 - An OpenSSF Scorecard workflow and its badge.
 - A weekly arm64 test build that doesn't block anything and opens or updates an issue when it fails.
 
-## Open items to verify (Phase 0)
+## Open items
 
-1. Whether Randovania's CLI covers Dread export, or the adapter is needed.
-2. ~~Qt/PySide6 headless requirements~~: core needs no Qt (PySide6 is the `gui` extra). Confirm export works without it.
-3. Supported Dread versions and their hashes; whether ExeFS is needed.
-4. That the Dread toolchain resolves for arm64 (for the weekly test build).
-5. SimpleModManager's license, library layout, and how cleanly its core logic separates from its UI.
-6. How Dread save slots behave across different seeds.
+Resolved by Phase 0 (ADR 0010):
+
+- ~~Whether Randovania's CLI covers Dread export~~: it does; no adapter module needed.
+- ~~Qt/PySide6 headless requirements~~: none.
+- ~~Whether the Dread toolchain resolves for arm64~~: the lock resolves, but
+  `py-tegra-swizzle` has no aarch64 wheel, so the arm64 image is blocked (options in ADR 0010).
+
+Still open:
+
+1. Supported Dread versions and their hashes; whether ExeFS is needed. Needs real
+   game files, so it is verified by the maintainer in Phase 2.
+2. SimpleModManager's license, library layout, and how cleanly its core logic separates from its UI.
+3. How Dread save slots behave across different seeds.

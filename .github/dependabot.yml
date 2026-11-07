@@ -10,6 +10,11 @@ updates:
     cooldown:
       default-days: 7
     groups:
+      # Randovania and its Dread patcher must move together: Randovania's
+      # "exporters" extra pins an exact open-dread-rando version (ADR 0010),
+      # and tests/test_randovania_cli.py fails if they drift apart.
+      randovania:
+        patterns: ["randovania", "open-dread-rando"]
       python-minor-and-patch:
         update-types: [minor, patch]
 
