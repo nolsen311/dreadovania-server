@@ -205,6 +205,12 @@ jobs:
           if docker exec smoke touch /app/should-fail 2>/dev/null; then
             echo "::error::root filesystem is writable"; exit 1
           fi
+          # Randovania works inside the hardened image (ADR 0010): generate a
+          # Dread seed from the bundled starter preset, writing only to /data.
+          docker exec smoke sh -c 'python -m randovania layout generate-from-presets \
+            --file "$(python -c "import randovania, pathlib; print(pathlib.Path(randovania.__file__).parent / \"games/dread/presets/starter_preset.rdvpreset\")")" \
+            --seed-number 1 /data/smoke.rdvgame'
+          docker exec smoke test -s /data/smoke.rdvgame
           docker rm -f smoke
       - uses: anchore/scan-action/download-grype@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
         id: grype

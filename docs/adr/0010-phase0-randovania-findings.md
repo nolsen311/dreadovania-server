@@ -68,6 +68,18 @@ Randovania 12.0.0 and open-dread-rando 2.21.0 on linux/amd64.
    (A side effect of the missing secret, independent of this choice:
    self-hosted builds can't obfuscate race-seed spoilers.)
 
+7. **Remove Randovania's bundled `ClarisPrimeRandomizer` folder from the image.**
+   It holds a third-party Metroid Prime 2 randomizer for Windows (`.exe` files
+   and DLLs), including `zlib1.dll` built from zlib 1.2.8, which Grype flags for
+   CVE-2016-9840, -9841, -9842, -9843 and CVE-2018-25032 (high/critical). Only
+   Randovania's Prime 1/2 exporters reference the folder; it can never load on
+   Linux or run for Dread. The Dockerfile deletes it after installing
+   dependencies and fails the build if any `.exe` or `.dll` remains. CI's image
+   smoke test generates a Dread seed inside the hardened container to prove
+   the removal is harmless. This is a narrow exception to decision 4 (we don't
+   trim Randovania for size): it is done to remove a vulnerable binary, not to
+   save space.
+
 ## Consequences
 
 - The weekly arm64 test build is expected to fail at the image build until
