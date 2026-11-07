@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from pydantic import AnyHttpUrl
+from pydantic import AnyHttpUrl, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,3 +20,7 @@ class Settings(BaseSettings):
     # The address users will type, e.g. https://dread.home.example.com.
     # Passkeys are bound to this origin (ADR 0004/0005). Set by the setup wizard later.
     public_url: AnyHttpUrl | None = None
+
+    # Job runner (ADR 0011 §2).
+    job_timeout_seconds: float = Field(default=600, gt=0)
+    max_queued_jobs_per_user: int = Field(default=5, ge=1)

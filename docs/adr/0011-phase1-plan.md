@@ -78,6 +78,10 @@ sign-in, security limits) and how the work is split into pull requests.
   length limit before they reach the subprocess; seed numbers are bounded
   integers; uploaded presets are parsed as JSON and checked for the Dread game
   before being stored.
+- **Permalinks are passed as one argument, `--permalink=VALUE`.** `-` is part of
+  the permalink alphabet, so a value such as `--race` passes validation; as a
+  single argument it can only ever be read as data, never as a flag (PR 1,
+  covered by tests including one against real Randovania).
 - `docs/openapi.json` is regenerated in each PR that changes the API (ADR 0007).
 
 ### 4. Sign-in (implements ADR 0004)

@@ -1,11 +1,19 @@
 """FastAPI application factory."""
 
-from collections.abc import Awaitable, Callable
+import asyncio
+import contextlib
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
+from importlib.metadata import version
 
 from fastapi import FastAPI, Request, Response
 from pydantic import BaseModel
 
 from dreadovania import __version__
+from dreadovania.config import Settings
+from dreadovania.db import Database
+from dreadovania.jobs import JobQueue
+from dreadovania.runner import RandovaniaRunner
 
 API_PREFIX = "/api/v1"
 
@@ -33,8 +41,33 @@ class ServerInfo(BaseModel):
     version: str
 
 
-def create_app() -> FastAPI:
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Open storage and run the job worker for the lifetime of the server."""
+    settings: Settings = app.state.settings
+    db = Database(settings.data_dir / "dreadovania.db")
+    db.migrate()
+    queue = JobQueue(
+        db,
+        RandovaniaRunner(timeout=settings.job_timeout_seconds),
+        settings.data_dir,
+        randovania_version=version("randovania"),
+        max_queued_per_owner=settings.max_queued_jobs_per_user,
+    )
+    queue.recover_interrupted()
+    worker = asyncio.create_task(queue.run_worker(), name="job-worker")
+    app.state.db, app.state.jobs = db, queue
+    try:
+        yield
+    finally:
+        worker.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await worker
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
+        lifespan=_lifespan,
         title="Dreadovania Server",
         version=__version__,
         # The OpenAPI document is the contract for dreadovania-nx (ADR 0007), so it is
@@ -43,6 +76,7 @@ def create_app() -> FastAPI:
         docs_url=None,
         redoc_url=None,
     )
+    app.state.settings = settings if settings is not None else Settings()
 
     @app.middleware("http")
     async def security_headers(
