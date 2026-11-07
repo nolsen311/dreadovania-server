@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 import randovania
 from packaging.requirements import Requirement
+from packaging.version import Version
 
 PRESET = Path(randovania.__file__).parent / "games/dread/presets/starter_preset.rdvpreset"
 
@@ -44,6 +45,21 @@ def test_dread_patcher_pin_matches_randovania() -> None:
     assert pins[0].specifier.contains(version("open-dread-rando")), (
         f"randovania {version('randovania')} wants {pins[0].specifier}, "
         f"installed open-dread-rando is {version('open-dread-rando')}"
+    )
+
+
+def test_cryptography_override_still_needed() -> None:
+    """pyproject.toml overrides Randovania's cryptography<49 pin (ADR 0010).
+
+    Fails when the override stops being active, or when Randovania itself
+    allows a fixed release, which means the override should be removed.
+    """
+    assert Version(version("cryptography")) >= Version("50"), "override not active"
+    pins = [Requirement(r) for r in requires("randovania") or [] if r.startswith("cryptography")]
+    assert len(pins) == 1, pins
+    assert not pins[0].specifier.contains("50.0.0"), (
+        f"randovania {version('randovania')} now allows {pins[0].specifier}: remove "
+        "override-dependencies from pyproject.toml and update ADR 0010"
     )
 
 
