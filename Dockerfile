@@ -35,7 +35,7 @@ FROM python:3.13-slim-trixie@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670eb
 LABEL org.opencontainers.image.title="Dreadovania Server" \
       org.opencontainers.image.description="Self-hosted server for Metroid Dread Randovania seeds. Contains no game content." \
       org.opencontainers.image.source="https://github.com/nolsen311/dreadovania-server" \
-      org.opencontainers.image.licenses="GPL-3.0-only"
+      org.opencontainers.image.licenses="GPL-3.0-or-later"
 
 RUN groupadd --system --gid 10001 dreadovania \
  && useradd --system --uid 10001 --gid dreadovania --no-create-home \

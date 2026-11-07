@@ -14,3 +14,4 @@ supersedes the old one; don't rewrite history.
 | [0006](0006-switch-delivery.md) | Switch delivery: zip, FTP push, SimpleModManager-compatible layout | Accepted |
 | [0007](0007-separate-nro-repo.md) | Switch app lives in a separate repository | Accepted |
 | [0008](0008-ci-supply-chain.md) | CI/CD supply-chain baseline | Accepted |
+| [0009](0009-claude-authorship-and-dco.md) | Claude authorship, maintainer sign-off (DCO) | Accepted |

@@ -44,6 +44,10 @@
         "do_not_enforce_on_create": true,
         "required_status_checks": [
           {
+            "context": "DCO",
+            "integration_id": 15368
+          },
+          {
             "context": "Lint",
             "integration_id": 15368
           },

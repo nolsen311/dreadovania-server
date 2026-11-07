@@ -1,6 +1,7 @@
 # Source code for this image
 
-This image is licensed under the GNU General Public License v3.0
+This image is licensed under the GNU General Public License, version 3 or (at
+your option) any later version (GPL-3.0-or-later)
 (`/usr/share/doc/dreadovania/LICENSE`).
 
 - **Dreadovania Server:** https://github.com/nolsen311/dreadovania-server
