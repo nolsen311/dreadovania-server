@@ -1,0 +1,205 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+
+# Nothing is granted unless a job asks for it (docs/PLAN.md section 7).
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  UV_VERSION: "0.13.7"
+  PYTHON_VERSION: "3.13"
+  ACTIONLINT_VERSION: "1.7.12"
+  ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+  ZIZMOR_VERSION: "1.32.0"
+  PIP_AUDIT_VERSION: "2.10.1"
+  GRYPE_VERSION: "v0.121.2"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Lockfile matches pyproject.toml
+        run: uv lock --check
+      - name: Ruff lint
+        run: uv run --locked ruff check --output-format=github .
+      - name: Ruff format
+        run: uv run --locked ruff format --check .
+
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Pytest
+        run: uv run --locked pytest
+
+  openapi:
+    name: OpenAPI contract
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: docs/openapi.json matches the code
+        run: uv run --locked python scripts/export_openapi.py --check
+
+  content-guard:
+    name: Content guard
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Standard library only, so it runs with the runner's Python and no installs.
+      - name: No game content, keys or large binaries
+        run: python3 scripts/content_guard.py .
+
+  workflow-lint:
+    name: Workflow lint
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: actionlint (checksum-verified download)
+        run: |
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          echo "${ACTIONLINT_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "${archive}" actionlint
+          ./actionlint -color
+      - name: zizmor (workflow security audit)
+        env:
+          # Read-only job token, used for online checks such as "does this SHA match its tag".
+          GH_TOKEN: ${{ github.token }}
+        run: uvx "zizmor@${ZIZMOR_VERSION}" --format=github .github/workflows
+
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: pip-audit against the locked, hashed requirements
+        run: |
+          uv export --frozen --format requirements.txt --no-emit-project -o "${RUNNER_TEMP}/requirements.txt"
+          uvx "pip-audit@${PIP_AUDIT_VERSION}" --strict --require-hashes --disable-pip \
+            -r "${RUNNER_TEMP}/requirements.txt"
+
+  image:
+    name: Container image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # CI builds the runner's native platform so the image can be loaded and run.
+      # arm64 is covered by .github/workflows/arm64-canary.yml.
+      - name: Build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          provenance: false
+          tags: dreadovania:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test with production hardening
+        run: |
+          install -d -m 0777 "${RUNNER_TEMP}/data"
+          docker run -d --name smoke -p 8080:8080 \
+            --read-only --tmpfs /tmp --cap-drop ALL \
+            --security-opt no-new-privileges:true --pids-limit 256 --memory 2g \
+            -v "${RUNNER_TEMP}/data:/data" dreadovania:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/healthz; then break; fi
+            sleep 1
+          done
+          echo
+          curl -fsS http://127.0.0.1:8080/api/v1/info
+          echo
+          test "$(docker exec smoke id -u)" = "10001"
+          if docker exec smoke touch /app/should-fail 2>/dev/null; then
+            echo "::error::root filesystem is writable"; exit 1
+          fi
+          docker rm -f smoke
+      - uses: anchore/scan-action/download-grype@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        id: grype
+        with:
+          grype-version: ${{ env.GRYPE_VERSION }}
+      - name: Vulnerability scan (fail on fixable high or critical)
+        env:
+          GRYPE: ${{ steps.grype.outputs.cmd }}
+        run: '"${GRYPE}" docker:dreadovania:ci --only-fixed --fail-on high'

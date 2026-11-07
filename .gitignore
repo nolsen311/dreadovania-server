@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# Local runtime data: never commit seeds, databases or user-supplied game files.
+/data/
+/input/
+.env
+*.pem

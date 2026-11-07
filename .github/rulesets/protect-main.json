@@ -4,16 +4,26 @@
   "enforcement": "active",
   "conditions": {
     "ref_name": {
-      "include": ["~DEFAULT_BRANCH"],
+      "include": [
+        "~DEFAULT_BRANCH"
+      ],
       "exclude": []
     }
   },
   "bypass_actors": [],
   "rules": [
-    { "type": "deletion" },
-    { "type": "non_fast_forward" },
-    { "type": "required_linear_history" },
-    { "type": "required_signatures" },
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    },
+    {
+      "type": "required_linear_history"
+    },
+    {
+      "type": "required_signatures"
+    },
     {
       "type": "pull_request",
       "parameters": {
@@ -22,7 +32,54 @@
         "require_code_owner_review": false,
         "require_last_push_approval": false,
         "required_review_thread_resolution": true,
-        "allowed_merge_methods": ["squash"]
+        "allowed_merge_methods": [
+          "squash"
+        ]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "do_not_enforce_on_create": true,
+        "required_status_checks": [
+          {
+            "context": "Lint",
+            "integration_id": 15368
+          },
+          {
+            "context": "Test",
+            "integration_id": 15368
+          },
+          {
+            "context": "OpenAPI contract",
+            "integration_id": 15368
+          },
+          {
+            "context": "Content guard",
+            "integration_id": 15368
+          },
+          {
+            "context": "Workflow lint",
+            "integration_id": 15368
+          },
+          {
+            "context": "Dependency audit",
+            "integration_id": 15368
+          },
+          {
+            "context": "Container image",
+            "integration_id": 15368
+          },
+          {
+            "context": "CodeQL (python)",
+            "integration_id": 15368
+          },
+          {
+            "context": "CodeQL (actions)",
+            "integration_id": 15368
+          }
+        ]
       }
     }
   ]

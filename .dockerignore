@@ -1,0 +1,10 @@
+# Build context allowlist: only what the Dockerfile needs. Keeps secrets,
+# local data and any stray game files out of the build context.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!SOURCE.md
+!src/
+src/**/__pycache__

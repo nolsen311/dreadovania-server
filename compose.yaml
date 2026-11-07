@@ -1,0 +1,26 @@
+# Example deployment with the hardening from docs/PLAN.md section 6.
+# For production, pin the image by digest (see SECURITY.md for how to verify it).
+services:
+  dreadovania:
+    image: ghcr.io/nolsen311/dreadovania-server:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # The address you will use in the browser; required for passkeys.
+      # DREADOVANIA_PUBLIC_URL: https://dread.home.example.com
+      DREADOVANIA_DATA_DIR: /data
+    volumes:
+      # Seeds and server state. Must be writable by UID/GID 10001.
+      - ./data:/data
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2
