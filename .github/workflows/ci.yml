@@ -127,6 +127,14 @@ jobs:
           # Read-only job token, used for online checks such as "does this SHA match its tag".
           GH_TOKEN: ${{ github.token }}
         run: uvx "zizmor@${ZIZMOR_VERSION}" --format=github .github/workflows
+      - name: shellcheck (repository scripts)
+        run: |
+          shopt -s nullglob
+          scripts=(scripts/*.sh)
+          if [ "${#scripts[@]}" -gt 0 ]; then shellcheck "${scripts[@]}"; fi
+      - name: Rulesets are valid JSON
+        run: |
+          for f in .github/rulesets/*.json; do jq empty "$f" && echo "ok    $f"; done
 
   dependency-audit:
     name: Dependency audit

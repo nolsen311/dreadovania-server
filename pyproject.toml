@@ -3,7 +3,7 @@ name = "dreadovania"
 version = "0.1.0"
 description = "Self-hosted web server for generating and patching Randovania seeds for Metroid Dread."
 readme = "README.md"
-license = "GPL-3.0-only"
+license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 requires-python = ">=3.13,<3.14"
 dependencies = [

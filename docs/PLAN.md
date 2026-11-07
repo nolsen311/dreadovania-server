@@ -25,6 +25,7 @@ Items marked **(verify)** are assumptions to confirm during the Phase 0 spike.
 | Switch delivery | Zip download and FTP push to `ftpd`; SimpleModManager-compatible library layout | [0006](adr/0006-switch-delivery.md) |
 | Switch app | Separate repo `dreadovania-nx`, using this server's OpenAPI spec as its contract | [0007](adr/0007-separate-nro-repo.md) |
 | Dependency updates | Dependabot (pip/uv, Docker digests, Actions SHAs) | [0008](adr/0008-ci-supply-chain.md) |
+| Authorship and sign-off | Claude authors; maintainer certifies each merge with a DCO sign-off | [0009](adr/0009-claude-authorship-and-dco.md) |
 
 ## Phases
 
@@ -56,7 +57,7 @@ Splitting the phases this way lets Phase 1 ship with zero copyrighted input.
 - Qt/PySide6: in Randovania 12.0.0, PySide6 is only in the optional `gui` extra, so the
   core install needs no Qt. Confirm that export works without it **(verify)**.
 - Install only `open-dread-rando` rather than the `exporters` extra, which pulls in every game's patcher.
-- License: GPL-3.0, matching Randovania. The image carries OCI source labels and a
+- License: GPL-3.0-or-later, compatible with Randovania. The image carries OCI source labels and a
   `SOURCE.md` pointing to the exact source of every bundled GPL component.
 - Upstream: draft a friendly note to the Randovania developers before announcing publicly.
 

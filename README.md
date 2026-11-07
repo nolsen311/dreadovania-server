@@ -14,6 +14,16 @@ and delivering them to a modded Nintendo Switch.
 - Serve an API for the companion Switch app,
   [`dreadovania-nx`](https://github.com/nolsen311/dreadovania-nx).
 
+## How this project is built
+
+This project is written by [Claude](https://claude.ai/code), Anthropic's AI
+coding assistant, under the oversight of its maintainer
+([@nolsen311](https://github.com/nolsen311)). Every change goes through a pull
+request that the maintainer reviews, signs off under the
+[Developer Certificate of Origin](CONTRIBUTING.md#developer-certificate-of-origin),
+and merges. Claude never merges, never tags releases, and never signs off on
+anyone's behalf. See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`CLAUDE.md`](CLAUDE.md).
+
 ## What this project does *not* do
 
 This repository and its container images contain **no game content, keys, or
@@ -48,4 +58,4 @@ See [`SECURITY.md`](SECURITY.md) for reporting vulnerabilities and verifying rel
 
 ## License
 
-[GPL-3.0](LICENSE), matching Randovania.
+[GPL-3.0-or-later](LICENSE), compatible with Randovania.
