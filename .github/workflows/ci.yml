@@ -132,6 +132,9 @@ jobs:
           shopt -s nullglob
           scripts=(scripts/*.sh)
           if [ "${#scripts[@]}" -gt 0 ]; then shellcheck "${scripts[@]}"; fi
+      - name: Bootstrap script tests (fake gh, no network)
+        run: |
+          if [ -x scripts/test-bootstrap.sh ]; then scripts/test-bootstrap.sh; fi
       - name: Rulesets are valid JSON
         run: |
           for f in .github/rulesets/*.json; do jq empty "$f" && echo "ok    $f"; done
