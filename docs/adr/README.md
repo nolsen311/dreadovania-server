@@ -17,3 +17,4 @@ supersedes the old one; don't rewrite history.
 | [0009](0009-claude-authorship-and-dco.md) | Claude authorship, maintainer sign-off (DCO) | Accepted |
 | [0010](0010-phase0-randovania-findings.md) | Phase 0: Randovania runs headless through its CLI | Accepted |
 | [0011](0011-phase1-plan.md) | Phase 1 plan: jobs, generation API, sign-in, first screens | Accepted |
+| [0012](0012-signoff-by-comment.md) | Sign off and merge with a `/signoff` comment | Accepted |

@@ -26,7 +26,7 @@ Items marked **(verify)** are assumptions to confirm during the Phase 0 spike.
 | Switch app | Separate repo `dreadovania-nx`, using this server's OpenAPI spec as its contract | [0007](adr/0007-separate-nro-repo.md) |
 | Web UI | Server-rendered (Jinja + htmx), no Node.js toolchain | [0011](adr/0011-phase1-plan.md) |
 | Dependency updates | Dependabot (pip/uv, Docker digests, Actions SHAs) | [0008](adr/0008-ci-supply-chain.md) |
-| Authorship and sign-off | Claude authors; maintainer certifies each merge with a DCO sign-off | [0009](adr/0009-claude-authorship-and-dco.md) |
+| Authorship and sign-off | Claude authors; maintainer certifies each merge with a DCO sign-off, by hand or with a `/signoff` comment | [0009](adr/0009-claude-authorship-and-dco.md), [0012](adr/0012-signoff-by-comment.md) |
 
 ## Phases
 

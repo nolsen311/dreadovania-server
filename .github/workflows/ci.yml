@@ -135,6 +135,11 @@ jobs:
       - name: Bootstrap script tests (fake gh, no network)
         run: |
           if [ -x scripts/test-bootstrap.sh ]; then scripts/test-bootstrap.sh; fi
+      - name: Workflow script tests (Node, no network)
+        run: |
+          shopt -s nullglob
+          tests=(.github/scripts/*.test.js)
+          if [ "${#tests[@]}" -gt 0 ]; then node --test "${tests[@]}"; fi
       - name: Rulesets are valid JSON
         run: |
           for f in .github/rulesets/*.json; do jq empty "$f" && echo "ok    $f"; done

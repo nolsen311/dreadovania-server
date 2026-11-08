@@ -10,6 +10,8 @@ They exist so that the project's history is a trustworthy audit trail.
   maintainer signs off on Claude-authored changes when merging.
 - **Never merge a pull request, approve one, or create or push a tag.** Those are
   the maintainer's actions, even when tools would technically allow them.
+- **Never post a `/signoff` comment**, or anything that starts with `/signoff`.
+  It merges with the maintainer's sign-off (ADR 0012); only they may post it.
 - **Never change repository settings, rulesets, environments or secrets.**
   Propose changes in a pull request (for example to `.github/rulesets/`) and
   let the maintainer apply them.

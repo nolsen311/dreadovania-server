@@ -48,6 +48,16 @@ force-push your branch.
 
 ### Signing off when merging (maintainer)
 
+**From anywhere, including a phone:** comment exactly `/signoff` on the pull
+request. The *Sign off and merge* workflow then squash-merges it with the PR
+title and description, `Co-authored-by:` lines for the commit authors, and your
+`Signed-off-by:` line (your GitHub name and no-reply address). It refuses, with a
+comment saying why, if any required check hasn't passed, the PR has conflicts or
+is a draft, or new commits arrived after your comment. A 👍 on your comment means
+it merged. Only the repository owner can trigger it (see ADR 0012).
+
+**By hand on the web:**
+
 GitHub's "Require sign-off on web-based commits" setting does **not** add a
 sign-off to squash merges. When squash-merging, add your line to the end of
 the commit message by hand:
