@@ -29,16 +29,16 @@
     The game files stay on this server: they are never shown, downloaded or logged.</p>
 </div>
 
-<h2>Upload a zip</h2>
+<h2>Upload an archive</h2>
 <div class="card stack" id="romfs-upload"{% if upload %} data-id="{{ upload.id }}" data-state="{{ upload.state }}"{% endif %}>
   {% if upload_blocked %}
   <p class="muted">{{ upload_blocked }}</p>
   {% else %}
-  <p>Zip the RomFS folder and upload it here. It's several GB, so use Wi-Fi and keep
+  <p>Upload the RomFS folder as a zip or tar archive (7-Zip and <code>tar</code> both work). It's several GB, so use Wi-Fi and keep
     this page open. If the upload stops, choose the same file again to continue where it
     left off. Your current game files are only replaced once the new ones have been checked.</p>
-  <label>RomFS zip
-    <input type="file" id="romfs-file" accept=".zip,application/zip">
+  <label>RomFS archive <small>(.zip, .tar, .tar.gz, .tar.bz2 or .tar.xz)</small>
+    <input type="file" id="romfs-file" accept=".zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.txz,application/zip,application/x-tar,application/gzip,application/x-xz,application/x-bzip2">
   </label>
   <button type="button" id="romfs-start" class="primary">Upload and install</button>
   <progress id="romfs-progress" max="1" value="0"{% if not upload or upload.state != "installing" %} hidden{% endif %}></progress>

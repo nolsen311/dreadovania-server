@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Uploading a RomFS zip from the browser (ADR 0013 §1, Phase 2 PR 3).
+"""Uploading a RomFS archive from the browser (ADR 0013 §1, Phase 2 PR 3).
 
-A RomFS is several GB, so the upload is resumable: the browser sends the zip in
+A RomFS is several GB, so the upload is resumable: the browser sends the file in
 chunks, each at an explicit offset, and the server's copy of the file is the
 record of how much has arrived. An interrupted upload continues where it stopped.
 
-Once complete, the zip is extracted into a staging folder, with every entry
+The archive may be a zip or a tar (plain, gzip, bzip2 or xz), recognised from
+its content. Once complete, it is extracted into a staging folder, with every entry
 checked first (no paths outside the target, no links, size and file-count
 limits). The result is validated like a mounted RomFS, and only a valid one
 replaces the current game files, by renaming.
@@ -22,16 +23,19 @@ import contextlib
 import hashlib
 import json
 import logging
+import lzma
 import os
 import secrets
 import shutil
 import stat
+import tarfile
 import time
 import zipfile
-from collections.abc import AsyncIterator, Callable
+import zlib
+from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Literal
+from typing import IO, Literal
 
 from dreadovania.romfs import PACKAGE_SUFFIXES, TOC, RomfsInspector
 
@@ -111,8 +115,8 @@ class RomfsUploads:
         return self.dir / "upload.json"
 
     @property
-    def _zip(self) -> Path:
-        return self.dir / "romfs.zip"
+    def _archive(self) -> Path:
+        return self.dir / "upload.archive"
 
     @property
     def _staging(self) -> Path:
@@ -132,7 +136,7 @@ class RomfsUploads:
 
     def _offset(self) -> int:
         try:
-            return self._zip.stat().st_size
+            return self._archive.stat().st_size
         except FileNotFoundError:
             return 0
 
@@ -198,6 +202,11 @@ class RomfsUploads:
 
     # ---- the protocol -------------------------------------------------------------------
 
+    @property
+    def installing(self) -> bool:
+        meta = self._read_meta()
+        return meta is not None and meta.state == "installing"
+
     def current(self) -> UploadStatus | None:
         meta = self._read_meta()
         return self._status(meta) if meta is not None else None
@@ -234,7 +243,7 @@ class RomfsUploads:
                     f"and {_gib(free)} is free"
                 )
             self.dir.mkdir(parents=True, exist_ok=True)
-            self._zip.touch()
+            self._archive.touch()
             meta = _Meta(secrets.token_hex(16), size, digest, "receiving", None, 0)
             self._write_meta(meta)
             return self._status(meta), True
@@ -258,7 +267,7 @@ class RomfsUploads:
             received = 0
             # Unbuffered appends: whatever arrives is kept, so a broken connection
             # loses at most the part of a chunk that never reached the server.
-            with self._zip.open("ab", buffering=0) as out:
+            with self._archive.open("ab", buffering=0) as out:
                 async for piece in body:
                     received += len(piece)
                     if received > limit:
@@ -272,7 +281,7 @@ class RomfsUploads:
             return self._status(meta)
 
     async def install(self, upload_id: str) -> UploadStatus:
-        """Check, extract and validate the uploaded zip, then swap it in (in the background)."""
+        """Check, extract and validate the uploaded archive, then swap it in (in the background)."""
         self._require_available()
         async with self._lock:
             meta = self._get(upload_id)
@@ -282,7 +291,7 @@ class RomfsUploads:
                 raise UploadError("the upload isn't complete yet")
             if self.is_busy():
                 raise UploadError("a seed is being patched; try again when it finishes")
-            meta.state, meta.message = "installing", "Checking the zip"
+            meta.state, meta.message = "installing", "Checking the archive"
             self._write_meta(meta)
             self._progress = (0, None)
             self._task = asyncio.create_task(self._install_in_background(meta))
@@ -315,29 +324,24 @@ class RomfsUploads:
             outcome = ("installed", f"Installed: Dread {version}.")
         finally:
             shutil.rmtree(self._staging, ignore_errors=True)
-            # Installed: the zip isn't needed. Failed: it won't get better, so start again.
-            self._zip.unlink(missing_ok=True)
+            # Installed: the archive isn't needed. Failed: it won't get better, so start again.
+            self._archive.unlink(missing_ok=True)
         state, message = outcome
         meta = replace(meta, state=state, message=message)
         self._write_meta(meta)
 
     def _install(self) -> str:
-        try:
-            with zipfile.ZipFile(self._zip) as archive:
-                entries, total = plan_extraction(archive, self.max_files, self.max_bytes)
-                free = shutil.disk_usage(self.dir).free
-                if free < total + SPACE_MARGIN_BYTES:
-                    raise UploadError(
-                        f"not enough free space to extract the zip: it needs {_gib(total)}, "
-                        f"and {_gib(free)} is free"
-                    )
-                self._staging.mkdir()
-                self._progress = (0, total)
-                extract(archive, entries, self._staging, self.max_bytes, self._on_progress)
-        except zipfile.BadZipFile:
-            raise UploadError("the file isn't a valid zip, or it's damaged") from None
-        except NotImplementedError:
-            raise UploadError(_COMPRESSION_HELP) from None
+        with open_archive(self._archive) as entries:
+            planned, total = plan_extraction(entries, self.max_files, self.max_bytes)
+            free = shutil.disk_usage(self.dir).free
+            if free < total + SPACE_MARGIN_BYTES:
+                raise UploadError(
+                    f"not enough free space to extract the archive: it needs {_gib(total)}, "
+                    f"and {_gib(free)} is free"
+                )
+            self._staging.mkdir()
+            self._progress = (0, total)
+            extract(planned, self._staging, self.max_bytes, self._on_progress)
 
         status = self.romfs.at(self._staging).status()
         if not status.ready:
@@ -353,86 +357,171 @@ class RomfsUploads:
 
 _COMPRESSION_HELP = (
     "This zip uses a compression method the server can't read (Windows uses Deflate64 "
-    "for large files). Make the zip with 7-Zip or another tool using standard Deflate, "
-    "or with no compression."
+    "for large files). Make the archive with 7-Zip using standard Deflate, or upload a "
+    ".tar or .tar.gz instead."
 )
+_DAMAGED = "the archive is damaged, or it isn't a complete zip or tar file"
+
+
+@dataclass(frozen=True)
+class Entry:
+    """One archive member, whatever the format. Only regular files can be opened."""
+
+    name: str
+    size: int
+    kind: Literal["file", "dir", "link", "special"]
+    open: Callable[[], IO[bytes]]
+    # Why this entry can never be extracted (encryption, compression), if anything.
+    problem: str | None = None
+
+
+@contextlib.contextmanager
+def open_archive(path: Path) -> Iterator[list[Entry]]:
+    """List a zip or tar archive (tar may be gzip, bzip2 or xz compressed).
+
+    The format is recognised from the content, not the file name. Format errors
+    while listing or reading become UploadError.
+    """
+    try:
+        if zipfile.is_zipfile(path):
+            with zipfile.ZipFile(path) as archive:
+                yield [_zip_entry(archive, info) for info in archive.infolist()]
+        elif tarfile.is_tarfile(path):
+            with tarfile.open(path, "r:*") as archive:
+                yield [_tar_entry(archive, member) for member in archive.getmembers()]
+        elif _starts_with(path, b"PK\x03\x04"):
+            raise UploadError(_DAMAGED)  # a zip that was cut off: no central directory
+        else:
+            raise UploadError(
+                "The file isn't a zip or tar archive. Upload a .zip, .tar, .tar.gz, .tar.bz2 "
+                "or .tar.xz of the RomFS folder."
+            )
+    except (
+        zipfile.BadZipFile,
+        tarfile.TarError,
+        EOFError,
+        OSError,
+        zlib.error,
+        lzma.LZMAError,
+    ) as exc:
+        if isinstance(exc, OSError) and exc.errno is not None:
+            raise  # a real I/O problem on the server, not a bad archive
+        raise UploadError(_DAMAGED) from None
+    except NotImplementedError:
+        raise UploadError(_COMPRESSION_HELP) from None
+
+
+def _starts_with(path: Path, magic: bytes) -> bool:
+    with path.open("rb") as f:
+        return f.read(len(magic)) == magic
+
+
+def _zip_entry(archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> Entry:
+    mode = info.external_attr >> 16
+    kind: Literal["file", "dir", "link", "special"] = (
+        "dir" if info.is_dir() else "link" if stat.S_ISLNK(mode) else "file"
+    )
+    problem = None
+    if info.flag_bits & 0x1:
+        problem = "the zip is encrypted; upload an unencrypted archive"
+    elif info.compress_type not in SUPPORTED_COMPRESSION:
+        problem = _COMPRESSION_HELP
+    return Entry(
+        name=info.filename.replace("\\", "/"),
+        size=info.file_size,
+        kind=kind,
+        open=lambda: archive.open(info),
+        problem=problem,
+    )
+
+
+def _tar_entry(archive: tarfile.TarFile, member: tarfile.TarInfo) -> Entry:
+    kind: Literal["file", "dir", "link", "special"] = (
+        "file" if member.isfile() else "dir" if member.isdir()
+        else "link" if member.issym() or member.islnk() else "special"
+    )  # fmt: skip
+
+    def open_member() -> IO[bytes]:
+        source = archive.extractfile(member)
+        if source is None:
+            raise UploadError(_DAMAGED)
+        return source
+
+    return Entry(name=member.name, size=member.size, kind=kind, open=open_member)
 
 
 def plan_extraction(
-    archive: zipfile.ZipFile, max_files: int, max_bytes: int
-) -> tuple[list[tuple[zipfile.ZipInfo, tuple[str, ...]]], int]:
+    entries: list[Entry], max_files: int, max_bytes: int
+) -> tuple[list[tuple[Entry, tuple[str, ...]]], int]:
     """Check every entry before anything is written. Returns (entries, total size).
 
-    The RomFS may be at the top of the zip or inside one folder: its root is
+    The RomFS may be at the top of the archive or inside one folder: its root is
     wherever ``system/files.toc`` is. Entries outside that folder are ignored.
     """
-    infos = archive.infolist()
-    if len(infos) > max_files * 2:
-        raise UploadError("the zip has far too many entries to be a RomFS")
-    names = [info.filename.replace("\\", "/") for info in infos]
-    tocs = [n for n in names if n == TOC or n.endswith("/" + TOC)]
+    if len(entries) > max_files * 2:
+        raise UploadError("the archive has far too many entries to be a RomFS")
+    tocs = [e.name for e in entries if e.name == TOC or e.name.endswith("/" + TOC)]
     if not tocs:
-        if any(Path(n).suffix.lower() in PACKAGE_SUFFIXES for n in names):
+        if any(Path(e.name).suffix.lower() in PACKAGE_SUFFIXES for e in entries):
             raise UploadError(
-                "This zip contains a game package, not an extracted RomFS. Dreadovania only "
-                "accepts the extracted RomFS folder, dumped from your own game."
+                "This archive contains a game package, not an extracted RomFS. Dreadovania "
+                "only accepts the extracted RomFS folder, dumped from your own game."
             )
-        raise UploadError("This zip doesn't contain a Dread RomFS (no system/files.toc).")
+        raise UploadError("This archive doesn't contain a Dread RomFS (no system/files.toc).")
     if len(tocs) > 1:
-        raise UploadError("This zip contains more than one RomFS. Upload just one.")
+        raise UploadError("This archive contains more than one RomFS. Upload just one.")
     prefix = tocs[0][: -len(TOC)]
 
-    entries: list[tuple[zipfile.ZipInfo, tuple[str, ...]]] = []
+    planned: list[tuple[Entry, tuple[str, ...]]] = []
     seen: set[tuple[str, ...]] = set()
     total = 0
-    for info, name in zip(infos, names, strict=True):
-        if not name.startswith(prefix) or info.is_dir():
+    for entry in entries:
+        if not entry.name.startswith(prefix) or entry.kind == "dir":
             continue
-        parts = tuple(name[len(prefix) :].split("/"))
+        parts = tuple(entry.name[len(prefix) :].split("/"))
         if any(p in ("", ".", "..") for p in parts) or ":" in parts[0]:
-            raise UploadError("the zip contains an unsafe path")
-        if stat.S_ISLNK(info.external_attr >> 16):
-            raise UploadError("the zip contains a symbolic link")
-        if info.flag_bits & 0x1:
-            raise UploadError("the zip is encrypted; upload an unencrypted zip")
-        if info.compress_type not in SUPPORTED_COMPRESSION:
-            raise UploadError(_COMPRESSION_HELP)
+            raise UploadError("the archive contains an unsafe path")
+        if entry.kind == "link":
+            raise UploadError("the archive contains a link; upload plain files only")
+        if entry.kind == "special":
+            raise UploadError("the archive contains something other than plain files")
+        if entry.problem is not None:
+            raise UploadError(entry.problem)
         if parts in seen:
-            raise UploadError("the zip contains the same file twice")
+            raise UploadError("the archive contains the same file twice")
         seen.add(parts)
-        total += info.file_size
-        entries.append((info, parts))
-        if len(entries) > max_files:
-            raise UploadError("the zip has too many files to be a RomFS")
+        total += entry.size
+        planned.append((entry, parts))
+        if len(planned) > max_files:
+            raise UploadError("the archive has too many files to be a RomFS")
         if total > max_bytes:
             raise UploadError(
-                f"the RomFS in the zip is larger than this server accepts ({_gib(max_bytes)})"
+                f"the RomFS in the archive is larger than this server accepts ({_gib(max_bytes)})"
             )
-    return entries, total
+    return planned, total
 
 
 def extract(
-    archive: zipfile.ZipFile,
-    entries: list[tuple[zipfile.ZipInfo, tuple[str, ...]]],
+    planned: list[tuple[Entry, tuple[str, ...]]],
     destination: Path,
     max_bytes: int,
     on_progress: Callable[[int], None],
 ) -> None:
-    """Write the planned entries, counting real bytes: sizes in a zip can lie."""
+    """Write the planned entries, counting real bytes: sizes in an archive can lie."""
     root = destination.resolve()
     done = 0
-    for info, parts in entries:
+    for entry, parts in planned:
         path = destination.joinpath(*parts)
         if not path.resolve().is_relative_to(root):
-            raise UploadError("the zip contains an unsafe path")
+            raise UploadError("the archive contains an unsafe path")
         path.parent.mkdir(parents=True, exist_ok=True)
         written = 0
-        with archive.open(info) as source, path.open("xb") as out:
+        with entry.open() as source, path.open("xb") as out:
             while chunk := source.read(COPY_CHUNK):
                 written += len(chunk)
                 done += len(chunk)
-                if written > info.file_size or done > max_bytes:
-                    raise UploadError("the zip's contents are larger than it says")
+                if written > entry.size or done > max_bytes:
+                    raise UploadError("the archive's contents are larger than it says")
                 out.write(chunk)
                 on_progress(done)
 

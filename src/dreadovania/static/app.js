@@ -50,7 +50,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Game files: resumable, chunked upload of a RomFS zip (ADR 0013).
+  // Game files: resumable, chunked upload of a RomFS archive (ADR 0013).
   const uploadBox = document.getElementById("romfs-upload");
   if (uploadBox && document.getElementById("romfs-start")) setUpRomfsUpload(uploadBox);
 });
@@ -80,7 +80,7 @@ function setUpRomfsUpload(box) {
 
   start.addEventListener("click", async () => {
     const file = input.files[0];
-    if (!file) return show("Choose the RomFS zip first.", true);
+    if (!file) return show("Choose the RomFS archive first.", true);
     busy(true);
     const lock = await wakeLock();
     try {

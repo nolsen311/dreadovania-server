@@ -73,15 +73,16 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.db, app.state.jobs = db, queue
     app.state.presets = PresetStore(db)
     app.state.seeds = SeedStore(db, settings.data_dir)
-    if app.state.romfs is None:
-        app.state.romfs = RomfsInspector(settings.romfs_path)
     uploads = RomfsUploads(
         settings.data_dir,
         app.state.romfs,
         max_bytes=settings.max_romfs_upload_bytes,
         max_files=settings.max_romfs_files,
         chunk_size=settings.romfs_upload_chunk_bytes,
+        is_busy=queue.export_running,
     )
+    # Never swap the game files under a running patch, nor patch during a swap.
+    queue.romfs_busy = lambda: uploads.installing
     uploads.recover()
     app.state.romfs_uploads = uploads
     try:

@@ -16,6 +16,7 @@ import secrets
 import shutil
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -73,6 +74,8 @@ class JobQueue:
         self.max_queued_per_owner = max_queued_per_owner
         self.progress_interval = progress_interval
         self.romfs = romfs
+        # True while uploaded game files are being installed (set by the app).
+        self.romfs_busy: Callable[[], bool] = lambda: False
 
         self._loop: asyncio.AbstractEventLoop | None = None
         self._wakeup = asyncio.Event()
@@ -169,6 +172,16 @@ class JobQueue:
             )
         self._notify_from_any_thread()
         return Submitted(seed_id=seed_id, job_id=job_id)
+
+    def export_running(self) -> bool:
+        """Whether a patch is reading the game files right now."""
+        with self.db.connect() as conn:
+            return (
+                conn.execute(
+                    "SELECT 1 FROM jobs WHERE kind = 'export' AND status = 'running' LIMIT 1"
+                ).fetchone()
+                is not None
+            )
 
     def _check_queue_room(self, conn: Any, owner_id: str) -> None:
         active = conn.execute(
@@ -373,6 +386,8 @@ class JobQueue:
 
     async def _export(self, job: dict[str, Any], workdir: Path, on_progress: Any) -> _Update:
         romfs = self.romfs
+        if self.romfs_busy():
+            raise RunnerError("new game files are being installed; patch again when that finishes")
         if romfs is None:
             raise RunnerError("patching isn't available on this server")
         # Checked again here: the game files may have changed since the job was queued.
