@@ -18,7 +18,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from dreadovania import auth
-from dreadovania.jobs import QueueFull
+from dreadovania.jobs import CannotPatch, QueueFull
 from dreadovania.problems import ApiProblem
 from dreadovania.romfs import SUPPORTED_VERSIONS
 from dreadovania.routes_auth import (
@@ -195,7 +195,7 @@ def seed_page(seed_id: str, request: Request) -> Response:
     seed = request.app.state.seeds.get(user.user_id, seed_id)
     if seed is None:
         return render(request, "not_found.html", status_code=404, user=user)
-    return render(request, "seed.html", user=user, seed=seed, job=_job_for(request, user, seed))
+    return render(request, "seed.html", user=user, **_status_context(request, user, seed))
 
 
 def _job_for(request: Request, user: auth.Session, seed: dict) -> dict | None:
@@ -209,7 +209,56 @@ def seed_status(seed_id: str, request: Request) -> Response:
     seed = request.app.state.seeds.get(user.user_id, seed_id)
     if seed is None:
         return render(request, "_error.html", status_code=404, message="seed not found")
-    return render(request, "_seed_status.html", seed=seed, job=_job_for(request, user, seed))
+    return render(request, "_seed_status.html", **_status_context(request, user, seed))
+
+
+def _status_context(request: Request, user: auth.Session, seed: dict) -> dict[str, Any]:
+    """What the generation and patching parts of a seed page need."""
+    context: dict[str, Any] = {"seed": seed, "job": _job_for(request, user, seed)}
+    if seed["status"] == "ready":
+        context["mod_job"] = (
+            request.app.state.jobs.get_job(seed["mod_job_id"], user.user_id)
+            if seed["mod_job_id"]
+            else None
+        )
+        # Inspecting the game files walks the folder: only when patching could start.
+        if seed["mod_status"] not in ("pending", "ready"):
+            context["romfs"] = request.app.state.romfs.status()
+    return context
+
+
+@router.get("/seeds/{seed_id}/mod/status")
+def mod_status(seed_id: str, request: Request) -> Response:
+    """The patching part of the seed page (polled by htmx while patching)."""
+    user = page_session(request)
+    seed = request.app.state.seeds.get(user.user_id, seed_id)
+    if seed is None or seed["status"] != "ready":
+        return render(request, "_error.html", status_code=404, message="seed not found")
+    return render(request, "_mod_status.html", **_status_context(request, user, seed))
+
+
+@router.post("/seeds/{seed_id}/patch")
+def patch(seed_id: str, request: Request) -> Response:
+    user = page_session(request)
+    if request.app.state.seeds.get(user.user_id, seed_id) is None:
+        return render(request, "_error.html", status_code=404, message="seed not found")
+    try:
+        request.app.state.jobs.submit_export(user.user_id, seed_id)
+    except LookupError:
+        return render(request, "_error.html", status_code=404, message="seed not found")
+    except (CannotPatch, QueueFull) as exc:
+        return render(request, "_error.html", message=str(exc))
+    return go(request, f"/seeds/{seed_id}")
+
+
+@router.post("/seeds/{seed_id}/mod/delete")
+def mod_delete(seed_id: str, request: Request) -> Response:
+    user = page_session(request)
+    try:
+        request.app.state.seeds.delete_mod(user.user_id, seed_id)
+    except SeedBusy:
+        return render(request, "_error.html", message="cancel the patching first")
+    return go(request, f"/seeds/{seed_id}")
 
 
 @router.get("/seeds/{seed_id}/spoiler")
@@ -235,7 +284,7 @@ def seed_delete(seed_id: str, request: Request) -> Response:
     try:
         request.app.state.seeds.delete(user.user_id, seed_id)
     except SeedBusy:
-        return render(request, "_error.html", message="cancel the generation first")
+        return render(request, "_error.html", message="cancel the generation or patching first")
     return go(request, "/")
 
 

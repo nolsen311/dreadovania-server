@@ -9,7 +9,14 @@ import pytest
 
 from dreadovania.db import Database, utc_now
 from dreadovania.jobs import JobQueue
-from dreadovania.runner import GenerateRequest, GenerateResult, ProgressCallback, RunnerError
+from dreadovania.runner import (
+    ExportRequest,
+    ExportResult,
+    GenerateRequest,
+    GenerateResult,
+    ProgressCallback,
+    RunnerError,
+)
 
 
 @pytest.fixture
@@ -64,6 +71,7 @@ class FakeRunner:
 
     def __init__(self) -> None:
         self.requests: list[GenerateRequest] = []
+        self.exports: list[ExportRequest] = []
         self.release = asyncio.Event()
         self.release.set()
         self.started = asyncio.Event()
@@ -83,6 +91,37 @@ class FakeRunner:
         out = workdir / "seed.rdvgame"
         out.write_text(json.dumps(fake_rdvgame(request.race)))
         return GenerateResult(permalink="FAKEPERMALINK", seed_hash="HASH1234", rdvgame=out)
+
+    async def export(
+        self, request: ExportRequest, workdir: Path, on_progress: ProgressCallback
+    ) -> ExportResult:
+        """Writes a mod shaped like open-dread-rando's Atmosphere output (no game data)."""
+        self.exports.append(request)
+        self.started.set()
+        on_progress("[ 50%] Patching")
+        await self.release.wait()
+        if self.fail_with:
+            raise RunnerError(self.fail_with)
+        mod = workdir / "mod"
+        write_fake_mod(mod)
+        return ExportResult(mod=mod)
+
+
+def write_fake_mod(mod: Path) -> None:
+    files = {
+        "contents/010093801237c000/romfs/packs/system/system.pkg": b"P" * 1000,
+        "contents/010093801237c000/exefs/main.npdm": b"N" * 10,
+        "exefs_patches/DreadRandovania/ABCDEF.ips": b"IPS",
+        "patcher.json": b"{}",  # written by the real patcher; must be dropped
+    }
+    for name, data in files.items():
+        path = mod / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+
+FAKE_MOD_BYTES = 1000 + 10 + 3
+FAKE_MOD_FILES = 3
 
 
 @pytest.fixture

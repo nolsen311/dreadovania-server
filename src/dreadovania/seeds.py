@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from dreadovania.db import Database
+from dreadovania.mods import remove_mod
 
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 MAX_LIST = 200
@@ -23,8 +24,19 @@ _SEED_COLUMNS = (
     "s.id, s.status, s.source, s.preset_key, s.preset_name, s.requested_permalink,"
     " s.seed_number, s.race, s.permalink, s.seed_hash, s.randovania_version,"
     " s.created_at, s.completed_at,"
-    " (SELECT j.id FROM jobs j WHERE j.seed_id = s.id ORDER BY j.created_at DESC LIMIT 1)"
-    " AS job_id"
+    " (SELECT j.id FROM jobs j WHERE j.seed_id = s.id AND j.kind = 'generate'"
+    "  ORDER BY j.created_at DESC LIMIT 1) AS job_id,"
+    " m.status AS mod_status, m.game_version AS mod_game_version,"
+    " m.file_count AS mod_file_count, m.size_bytes AS mod_size_bytes,"
+    " m.randovania_version AS mod_randovania_version, m.created_at AS mod_created_at,"
+    " m.completed_at AS mod_completed_at,"
+    " (SELECT j.id FROM jobs j WHERE j.seed_id = s.id AND j.kind = 'export'"
+    "  ORDER BY j.created_at DESC LIMIT 1) AS mod_job_id"
+)
+_FROM = "FROM seeds s LEFT JOIN mods m ON m.seed_id = s.id"
+# A seed with a queued or running job (generating or patching) can't be deleted.
+_BUSY = (
+    "EXISTS (SELECT 1 FROM jobs j WHERE j.seed_id = seeds.id AND j.status IN ('queued', 'running'))"
 )
 
 
@@ -56,7 +68,7 @@ class SeedStore:
         limit = max(1, min(limit, MAX_LIST))
         with self.db.connect() as conn:
             rows = conn.execute(
-                f"SELECT {_SEED_COLUMNS} FROM seeds s WHERE s.owner_id = ?"  # noqa: S608
+                f"SELECT {_SEED_COLUMNS} {_FROM} WHERE s.owner_id = ?"
                 " ORDER BY s.created_at DESC, s.rowid DESC LIMIT ?",
                 (owner_id, limit),
             ).fetchall()
@@ -67,7 +79,7 @@ class SeedStore:
             return None
         with self.db.connect() as conn:
             row = conn.execute(
-                f"SELECT {_SEED_COLUMNS} FROM seeds s WHERE s.id = ? AND s.owner_id = ?",  # noqa: S608
+                f"SELECT {_SEED_COLUMNS} {_FROM} WHERE s.id = ? AND s.owner_id = ?",
                 (seed_id, owner_id),
             ).fetchone()
         return dict(row) if row else None
@@ -81,6 +93,28 @@ class SeedStore:
             raise SeedNotReady
         path = self._dir(owner_id, seed["id"]) / "seed.rdvgame"
         return path if path.is_file() else None
+
+    def mod_dir(self, owner_id: str, seed_id: str) -> Path | None:
+        """The folder of a seed's ready mod (owner-scoped), or None if it has none."""
+        seed = self.get(owner_id, seed_id)
+        if seed is None or seed["mod_status"] != "ready":
+            return None
+        path = self._dir(owner_id, seed["id"]) / "mod"
+        return path if path.is_dir() else None
+
+    def delete_mod(self, owner_id: str, seed_id: str) -> bool:
+        """Delete a seed's patched files, keeping the seed. False if there are none."""
+        seed = self.get(owner_id, seed_id)
+        if seed is None or seed["mod_status"] is None:
+            return False
+        if seed["mod_status"] == "pending":
+            raise SeedBusy
+        with self.db.connect() as conn:
+            conn.execute(
+                "DELETE FROM mods WHERE seed_id = ? AND owner_id = ?", (seed["id"], owner_id)
+            )
+        remove_mod(self._dir(owner_id, seed["id"]) / "mod")
+        return True
 
     def spoiler(self, owner_id: str, seed_id: str) -> dict[str, Any] | None:
         """Pickup locations and starting state. Race seeds have none."""
@@ -125,16 +159,20 @@ class SeedStore:
         seed = self.get(owner_id, seed_id)
         if seed is None:
             return False
-        if seed["status"] == "pending":
-            raise SeedBusy
-        with self.db.connect() as conn:
+        with self.db.transaction() as conn:
+            busy = conn.execute(
+                f"SELECT {_BUSY} FROM seeds WHERE id = ?",  # noqa: S608
+                (seed["id"],),
+            ).fetchone()[0]
+            if seed["status"] == "pending" or busy:
+                raise SeedBusy
             conn.execute("DELETE FROM seeds WHERE id = ? AND owner_id = ?", (seed["id"], owner_id))
         shutil.rmtree(self._dir(owner_id, seed["id"]), ignore_errors=True)
         return True
 
     def count_purgeable(self, owner_id: str, older_than_days: int | None) -> int:
         """How many seeds a purge with the same scope would delete (for confirmation)."""
-        where, params = "owner_id = ? AND status != 'pending'", [owner_id]
+        where, params = f"owner_id = ? AND status != 'pending' AND NOT {_BUSY}", [owner_id]
         if older_than_days is not None:
             cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
             where += " AND created_at < ?"
@@ -145,7 +183,8 @@ class SeedStore:
     def purge(self, owner_id: str, older_than_days: int | None) -> tuple[int, int]:
         """Delete all finished seeds, or those older than N days.
 
-        Returns (deleted, skipped). Seeds still being generated are skipped.
+        Returns (deleted, skipped). Seeds still being generated or patched are
+        skipped. Deleting a seed deletes its mod too.
         """
         where, params = "owner_id = ?", [owner_id]
         if older_than_days is not None:
@@ -154,10 +193,10 @@ class SeedStore:
             params.append(cutoff.isoformat(timespec="milliseconds"))
         with self.db.transaction() as conn:
             rows = conn.execute(
-                f"SELECT id, status FROM seeds WHERE {where}",  # noqa: S608
+                f"SELECT id, status, {_BUSY} AS busy FROM seeds WHERE {where}",  # noqa: S608
                 params,
             ).fetchall()
-            doomed = [r["id"] for r in rows if r["status"] != "pending"]
+            doomed = [r["id"] for r in rows if r["status"] != "pending" and not r["busy"]]
             conn.executemany(
                 "DELETE FROM seeds WHERE id = ? AND owner_id = ?", [(i, owner_id) for i in doomed]
             )

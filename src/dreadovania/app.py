@@ -52,12 +52,18 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
     db = Database(settings.data_dir / "dreadovania.db")
     db.migrate()
+    if app.state.romfs is None:
+        app.state.romfs = RomfsInspector(settings.romfs_path)
     queue = JobQueue(
         db,
-        app.state.runner or RandovaniaRunner(timeout=settings.job_timeout_seconds),
+        app.state.runner
+        or RandovaniaRunner(
+            timeout=settings.job_timeout_seconds, export_timeout=settings.export_timeout_seconds
+        ),
         settings.data_dir,
         randovania_version=version("randovania"),
         max_queued_per_owner=settings.max_queued_jobs_per_user,
+        romfs=app.state.romfs,
     )
     queue.recover_interrupted()
     if auth.setup_required(db):
@@ -66,8 +72,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.db, app.state.jobs = db, queue
     app.state.presets = PresetStore(db)
     app.state.seeds = SeedStore(db, settings.data_dir)
-    if app.state.romfs is None:
-        app.state.romfs = RomfsInspector(settings.romfs_path)
     try:
         yield
     finally:

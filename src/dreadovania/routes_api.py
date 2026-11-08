@@ -7,15 +7,17 @@ lookup is owner-scoped: someone else's preset, seed or job reads as 404.
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from starlette.concurrency import run_in_threadpool
+from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 
-from dreadovania.jobs import JobQueue, QueueFull
+from dreadovania.jobs import CannotPatch, JobQueue, QueueFull
+from dreadovania.mods import iter_mod_zip
 from dreadovania.presets import MAX_PRESET_BYTES, PresetInfo, PresetStore
 from dreadovania.problems import ApiProblem
 from dreadovania.romfs import SUPPORTED_VERSIONS, RomfsStatus, State
@@ -65,6 +67,25 @@ class GenerateIn(BaseModel):
     race: bool = False
 
 
+class ModOut(BaseModel):
+    """A seed's patched files, for Atmosphere (ADR 0013 §3)."""
+
+    status: Literal["pending", "ready", "failed", "cancelled"]
+    game_version: str | None
+    file_count: int | None
+    size_bytes: int | None
+    randovania_version: str
+    created_at: str
+    completed_at: str | None
+    job_id: str | None
+
+    @classmethod
+    def of(cls, row: dict[str, Any]) -> ModOut | None:
+        if row.get("mod_status") is None:
+            return None
+        return cls(**{name: row[f"mod_{name}"] for name in cls.model_fields})
+
+
 class SeedOut(BaseModel):
     id: str
     status: Literal["pending", "ready", "failed", "cancelled"]
@@ -79,11 +100,15 @@ class SeedOut(BaseModel):
     randovania_version: str
     created_at: str
     completed_at: str | None
-    job_id: str | None
+    job_id: str | None = Field(description="The job that generated this seed.")
+    mod: ModOut | None = Field(description="The patched files, once the seed has been patched.")
 
     @classmethod
     def of(cls, row: dict[str, Any]) -> SeedOut:
-        return cls(**{**row, "preset_id": row["preset_key"], "race": bool(row["race"])})
+        return cls(
+            **{**row, "preset_id": row["preset_key"], "race": bool(row["race"])},
+            mod=ModOut.of(row),
+        )
 
 
 class Submitted(BaseModel):
@@ -94,6 +119,7 @@ class Submitted(BaseModel):
 class JobOut(BaseModel):
     id: str
     seed_id: str
+    kind: Literal["generate", "export"]
     status: Literal["queued", "running", "succeeded", "failed", "cancelled"]
     progress: str | None
     error: str | None
@@ -302,6 +328,69 @@ def delete_seed(seed_id: str, request: Request, user: CurrentUser) -> None:
         raise ApiProblem(409, "Seed in progress", "cancel its job first") from None
     if not deleted:
         raise _not_found("Seed")
+
+
+# ---- patching (ADR 0013) --------------------------------------------------------------------
+
+
+@router.post("/seeds/{seed_id}/mod", status_code=status.HTTP_202_ACCEPTED, tags=["patching"])
+def patch_seed(seed_id: str, request: Request, user: CurrentUser) -> Submitted:
+    """Patch a generated seed into the server's game files. Follow the job for progress.
+
+    Needs ready game files (see `GET /romfs`). Race seeds can be patched: patching
+    doesn't reveal the spoiler.
+    """
+    if not is_uuid(seed_id):
+        raise _not_found("Seed")
+    try:
+        sub = _jobs(request).submit_export(user.user_id, seed_id)
+    except LookupError:
+        raise _not_found("Seed") from None
+    except CannotPatch as exc:
+        raise ApiProblem(409, "Can't patch this seed", str(exc)) from None
+    except QueueFull as exc:
+        raise ApiProblem(429, "Too many jobs waiting", str(exc)) from None
+    return Submitted(seed_id=sub.seed_id, job_id=sub.job_id)
+
+
+@router.get(
+    "/seeds/{seed_id}/mod.zip",
+    tags=["patching"],
+    response_class=StreamingResponse,
+    responses={200: {"content": {"application/zip": {}}}},
+)
+def download_mod(seed_id: str, request: Request, user: CurrentUser) -> Response:
+    """Download the patched seed as a zip. Extract it at the root of the SD card.
+
+    It contains `atmosphere/…`, made from your own game files: don't share it.
+    """
+    seeds = _seeds(request)
+    seed = seeds.get(user.user_id, seed_id)
+    if seed is None:
+        raise _not_found("Seed")
+    folder = seeds.mod_dir(user.user_id, seed_id)
+    if folder is None:
+        raise ApiProblem(409, "Not patched", "patch this seed first")
+    label = re.sub(r"[^A-Za-z0-9_-]", "", seed["seed_hash"] or "") or seed["id"]
+    return StreamingResponse(
+        iterate_in_threadpool(iter_mod_zip(folder)),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="dreadovania-{label}.zip"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.delete("/seeds/{seed_id}/mod", status_code=status.HTTP_204_NO_CONTENT, tags=["patching"])
+def delete_mod(seed_id: str, request: Request, user: CurrentUser) -> None:
+    """Delete a seed's patched files to free space. The seed itself is kept."""
+    try:
+        deleted = _seeds(request).delete_mod(user.user_id, seed_id)
+    except SeedBusy:
+        raise ApiProblem(409, "Patching in progress", "cancel its job first") from None
+    if not deleted:
+        raise _not_found("Patched files")
 
 
 # ---- jobs ---------------------------------------------------------------------------------

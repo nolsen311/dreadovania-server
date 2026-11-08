@@ -30,7 +30,7 @@ h2 { font-size: 1.2rem; margin: 1.5rem 0 .75rem; }
 .bar nav a, .bar nav button { white-space: nowrap; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem; margin: 0 0 1rem; }
 .stack { display: flex; flex-direction: column; gap: .9rem; }
-.stack > p, .stack > dl { margin: 0; }
+.stack > p, .stack > dl, .stack > h2 { margin: 0; }
 .inline { display: inline; margin: 0; }
 label { display: flex; flex-direction: column; gap: .3rem; font-weight: 600; }
 label small, small, .muted { color: var(--muted); font-weight: 400; }
