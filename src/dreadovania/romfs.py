@@ -79,7 +79,11 @@ class RomfsInspector:
 
     def __init__(self, root: Path, identify: Identify = identify_by_toc) -> None:
         self.root = root
-        self._identify = identify
+        self.identify = identify
+
+    def at(self, root: Path) -> RomfsInspector:
+        """The same checks, for another folder (an upload being installed)."""
+        return RomfsInspector(root, identify=self.identify)
 
     def status(self) -> RomfsStatus:
         try:
@@ -127,7 +131,7 @@ class RomfsInspector:
         toc = root / TOC
         if toc.stat().st_size > MAX_TOC_BYTES:
             return RomfsStatus("not_romfs", "system/files.toc is too large to be a Dread RomFS.")
-        version = self._identify(toc.read_bytes())
+        version = self.identify(toc.read_bytes())
         count, size = _count_files(root)
         if count is None:
             return RomfsStatus("not_romfs", "This folder has far too many files to be a RomFS.")

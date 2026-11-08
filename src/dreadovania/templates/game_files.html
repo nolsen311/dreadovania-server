@@ -29,7 +29,37 @@
     The game files stay on this server: they are never shown, downloaded or logged.</p>
 </div>
 
-<h2>How to add them</h2>
+<h2>Upload a zip</h2>
+<div class="card stack" id="romfs-upload"{% if upload %} data-id="{{ upload.id }}" data-state="{{ upload.state }}"{% endif %}>
+  {% if upload_blocked %}
+  <p class="muted">{{ upload_blocked }}</p>
+  {% else %}
+  <p>Zip the RomFS folder and upload it here. It's several GB, so use Wi-Fi and keep
+    this page open. If the upload stops, choose the same file again to continue where it
+    left off. Your current game files are only replaced once the new ones have been checked.</p>
+  <label>RomFS zip
+    <input type="file" id="romfs-file" accept=".zip,application/zip">
+  </label>
+  <button type="button" id="romfs-start" class="primary">Upload and install</button>
+  <progress id="romfs-progress" max="1" value="0"{% if not upload or upload.state != "installing" %} hidden{% endif %}></progress>
+  <p id="romfs-upload-status" role="status"{% if upload and upload.state == "failed" %} class="error"{% endif %}>
+    {%- if upload -%}
+      {%- if upload.state == "receiving" -%}
+        A previous upload stopped at {{ upload.offset | filesizeformat }} of {{ upload.size | filesizeformat }}. Choose the same file to continue.
+      {%- elif upload.state == "received" -%}
+        A previous upload is complete but wasn't installed. Choose the same file to install it.
+      {%- elif upload.state == "installing" -%}
+        Installing…
+      {%- elif upload.message -%}
+        {{ upload.message }}
+      {%- endif -%}
+    {%- endif -%}
+  </p>
+  <button type="button" id="romfs-discard" class="danger small"{% if not upload or upload.state not in ("receiving", "received") %} hidden{% endif %}>Discard the unfinished upload</button>
+  {% endif %}
+</div>
+
+<h2>Or mount a folder</h2>
 <div class="card stack">
   <p>Copy the RomFS folder to the server, then mount it at <code>/data/romfs</code>.
     <code>system/</code> and <code>packs/</code> should be directly inside it. For example,
@@ -38,6 +68,6 @@
   - ./data:/data
   - /path/to/dread-romfs:/data/romfs:ro</pre>
   <p class="muted">The folder must be readable by the container's user (UID 10001).
-    Uploading from this page will come in a later update.</p>
+    While it's mounted, uploading from this page is turned off.</p>
 </div>
 {% endblock %}

@@ -71,6 +71,7 @@ pre { margin: 0; padding: .75rem; background: var(--bg); border: 1px solid var(-
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9rem; }
 .wrap { word-break: break-all; }
 .progress { color: var(--muted); margin: 0; }
+progress { width: 100%; height: 1rem; accent-color: var(--accent); }
 .details { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; margin: 0; }
 .card.details { margin-bottom: 1rem; }
 .details dt { color: var(--muted); }

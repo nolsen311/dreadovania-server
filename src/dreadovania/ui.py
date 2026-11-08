@@ -342,7 +342,16 @@ async def purge(request: Request) -> Response:
 async def game_files_page(request: Request) -> Response:
     user = page_session(request)
     status = await run_in_threadpool(request.app.state.romfs.status)
-    return render(request, "game_files.html", user=user, romfs=status, supported=SUPPORTED_VERSIONS)
+    uploads = request.app.state.romfs_uploads
+    return render(
+        request,
+        "game_files.html",
+        user=user,
+        romfs=status,
+        supported=SUPPORTED_VERSIONS,
+        upload=uploads.current(),
+        upload_blocked=await run_in_threadpool(uploads.unavailable_reason),
+    )
 
 
 # ---- presets ----------------------------------------------------------------------------------

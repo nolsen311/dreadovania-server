@@ -411,6 +411,22 @@
             ],
             "title": "Total Bytes"
           },
+          "upload_allowed": {
+            "title": "Upload Allowed",
+            "type": "boolean"
+          },
+          "upload_blocked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why game files can't be uploaded here (for example, the folder is a mount).",
+            "title": "Upload Blocked Reason"
+          },
           "version": {
             "anyOf": [
               {
@@ -430,7 +446,9 @@
           "version",
           "supported_versions",
           "file_count",
-          "total_bytes"
+          "total_bytes",
+          "upload_allowed",
+          "upload_blocked_reason"
         ],
         "title": "RomfsOut",
         "type": "object"
@@ -770,6 +788,100 @@
           "job_id"
         ],
         "title": "Submitted",
+        "type": "object"
+      },
+      "UploadOut": {
+        "properties": {
+          "chunk_size": {
+            "description": "The largest chunk the server accepts.",
+            "title": "Chunk Size",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "installed_bytes": {
+            "title": "Installed Bytes",
+            "type": "integer"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "offset": {
+            "description": "Bytes received so far: send the next chunk from here.",
+            "title": "Offset",
+            "type": "integer"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "receiving",
+              "received",
+              "installing",
+              "failed",
+              "installed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "total_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Bytes"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "size",
+          "offset",
+          "chunk_size",
+          "message",
+          "installed_bytes",
+          "total_bytes"
+        ],
+        "title": "UploadOut",
+        "type": "object"
+      },
+      "UploadStart": {
+        "properties": {
+          "fingerprint": {
+            "description": "Identifies the file so an interrupted upload can be resumed (for example its name, size and modification time). Stored only as a hash.",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "size": {
+            "description": "The zip's size in bytes.",
+            "exclusiveMinimum": 0.0,
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "size",
+          "fingerprint"
+        ],
+        "title": "UploadStart",
         "type": "object"
       },
       "ValidationError": {
@@ -1172,6 +1284,219 @@
           }
         },
         "summary": "Get Romfs",
+        "tags": [
+          "game files"
+        ]
+      }
+    },
+    "/api/v1/romfs/upload": {
+      "get": {
+        "description": "The current (or last) game files upload.",
+        "operationId": "get_upload_api_v1_romfs_upload_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Upload",
+        "tags": [
+          "game files"
+        ]
+      },
+      "post": {
+        "description": "Start uploading a zip of an extracted RomFS, or resume the same file.\n\nThen send it in chunks with `PATCH`, and install it with `POST \u2026/install`.",
+        "operationId": "start_upload_api_v1_romfs_upload_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadStart"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadOut"
+                }
+              }
+            },
+            "description": "Resuming the same file."
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Upload",
+        "tags": [
+          "game files"
+        ]
+      }
+    },
+    "/api/v1/romfs/upload/{upload_id}": {
+      "delete": {
+        "description": "Discard an upload and the data received so far.",
+        "operationId": "discard_upload_api_v1_romfs_upload__upload_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "title": "Upload Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Discard Upload",
+        "tags": [
+          "game files"
+        ]
+      },
+      "patch": {
+        "description": "Append one chunk (at most `chunk_size` bytes) at `Upload-Offset`.\n\nA 409 with `offset` means the server has a different amount: continue from there.",
+        "operationId": "upload_chunk_api_v1_romfs_upload__upload_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "title": "Upload Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Where this chunk starts: the upload's current offset.",
+            "in": "header",
+            "name": "Upload-Offset",
+            "required": true,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/offset+octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Chunk",
+        "tags": [
+          "game files"
+        ]
+      }
+    },
+    "/api/v1/romfs/upload/{upload_id}/install": {
+      "post": {
+        "description": "Check, extract and validate the uploaded zip, then replace the game files with it.\n\nRuns in the background: follow it with `GET /romfs/upload`. The current game\nfiles are only replaced if the new ones are a supported, unmodified RomFS.",
+        "operationId": "install_upload_api_v1_romfs_upload__upload_id__install_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "title": "Upload Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Install Upload",
         "tags": [
           "game files"
         ]
