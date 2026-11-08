@@ -137,7 +137,7 @@ function fakeGitHub({
   return { github, calls };
 }
 
-const core = { notice: () => {} };
+const core = { notice: () => {}, warning: () => {} };
 const context = (p = payload()) => ({ payload: p, repo: { owner: OWNER, repo: "dreadovania-server" } });
 const opts = { versionFile: "pyproject.toml", releaseWorkflow: "release.yml" };
 
