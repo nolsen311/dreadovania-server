@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 
-from dreadovania.jobs import CannotPatch, JobQueue, QueueFull
+from dreadovania.jobs import CannotPatch, CannotSend, JobQueue, QueueFull
 from dreadovania.mods import iter_mod_zip
 from dreadovania.presets import MAX_PRESET_BYTES, PresetInfo, PresetStore
 from dreadovania.problems import ApiProblem
@@ -111,6 +111,9 @@ class SeedOut(BaseModel):
     completed_at: str | None
     job_id: str | None = Field(description="The job that generated this seed.")
     mod: ModOut | None = Field(description="The patched files, once the seed has been patched.")
+    push_job_id: str | None = Field(
+        default=None, description="The latest job that sent this seed to a Switch."
+    )
 
     @classmethod
     def of(cls, row: dict[str, Any]) -> SeedOut:
@@ -128,7 +131,7 @@ class Submitted(BaseModel):
 class JobOut(BaseModel):
     id: str
     seed_id: str
-    kind: Literal["generate", "export"]
+    kind: Literal["generate", "export", "push"]
     status: Literal["queued", "running", "succeeded", "failed", "cancelled"]
     progress: str | None
     error: str | None
@@ -579,6 +582,12 @@ class SwitchOut(BaseModel):
     last_test_message: str | None
     created_at: str
     updated_at: str
+    installed_seed_id: str | None = Field(
+        description="The seed Dreadovania last installed on this Switch, if any."
+    )
+    install_state: Literal["installing", "installed"] | None = Field(
+        description="'installing' if the last send didn't finish: the next one cleans it up."
+    )
 
 
 class ConnectionTest(BaseModel):
@@ -659,6 +668,41 @@ async def test_switch(switch_id: str, request: Request, user: CurrentUser) -> Co
     if result is None:
         raise _not_found("Switch")
     return ConnectionTest(ok=result.ok, message=result.message)
+
+
+class PushIn(BaseModel):
+    switch_id: str = Field(min_length=1, max_length=64)
+    overwrite: bool = Field(
+        default=False,
+        description="Replace files that another mod installed, if the seed needs them.",
+    )
+    clear: bool = Field(
+        default=False,
+        description="Empty Dread's mod folders on the Switch first, whatever is in them.",
+    )
+
+
+@router.post("/seeds/{seed_id}/push", status_code=status.HTTP_202_ACCEPTED, tags=["switches"])
+def send_to_switch(seed_id: str, body: PushIn, request: Request, user: CurrentUser) -> Submitted:
+    """Install a patched seed on a saved Switch over FTP. Open ftpd on the Switch first.
+
+    The previous seed's files are removed first; other mods are kept. If the seed
+    would replace another mod's files, the job fails and lists them, unless
+    `overwrite` is set. Follow the job for progress.
+    """
+    if not is_uuid(seed_id) or not is_uuid(body.switch_id):
+        raise _not_found("Seed or Switch")
+    try:
+        sub = _jobs(request).submit_push(
+            user.user_id, seed_id, body.switch_id, overwrite=body.overwrite, clear=body.clear
+        )
+    except LookupError:
+        raise _not_found("Seed") from None
+    except CannotSend as exc:
+        raise ApiProblem(409, "Can't send this seed", str(exc)) from None
+    except QueueFull as exc:
+        raise ApiProblem(429, "Too many jobs waiting", str(exc)) from None
+    return Submitted(seed_id=sub.seed_id, job_id=sub.job_id)
 
 
 # ---- jobs ---------------------------------------------------------------------------------

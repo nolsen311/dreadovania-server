@@ -31,7 +31,9 @@ _SEED_COLUMNS = (
     " m.randovania_version AS mod_randovania_version, m.created_at AS mod_created_at,"
     " m.completed_at AS mod_completed_at,"
     " (SELECT j.id FROM jobs j WHERE j.seed_id = s.id AND j.kind = 'export'"
-    "  ORDER BY j.created_at DESC LIMIT 1) AS mod_job_id"
+    "  ORDER BY j.created_at DESC LIMIT 1) AS mod_job_id,"
+    " (SELECT j.id FROM jobs j WHERE j.seed_id = s.id AND j.kind = 'push'"
+    "  ORDER BY j.created_at DESC LIMIT 1) AS push_job_id"
 )
 _FROM = "FROM seeds s LEFT JOIN mods m ON m.seed_id = s.id"
 # A seed with a queued or running job (generating or patching) can't be deleted.

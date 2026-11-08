@@ -126,7 +126,8 @@
           "kind": {
             "enum": [
               "generate",
-              "export"
+              "export",
+              "push"
             ],
             "title": "Kind",
             "type": "string"
@@ -374,6 +375,33 @@
         "title": "Purged",
         "type": "object"
       },
+      "PushIn": {
+        "properties": {
+          "clear": {
+            "default": false,
+            "description": "Empty Dread's mod folders on the Switch first, whatever is in them.",
+            "title": "Clear",
+            "type": "boolean"
+          },
+          "overwrite": {
+            "default": false,
+            "description": "Replace files that another mod installed, if the seed needs them.",
+            "title": "Overwrite",
+            "type": "boolean"
+          },
+          "switch_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Switch Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "switch_id"
+        ],
+        "title": "PushIn",
+        "type": "object"
+      },
       "RomfsOut": {
         "description": "The game files' status. Never their contents, paths or file names.",
         "properties": {
@@ -547,6 +575,18 @@
               }
             ],
             "title": "Preset Name"
+          },
+          "push_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest job that sent this seed to a Switch.",
+            "title": "Push Job Id"
           },
           "race": {
             "title": "Race",
@@ -882,6 +922,34 @@
             "title": "Id",
             "type": "string"
           },
+          "install_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "installing",
+                  "installed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'installing' if the last send didn't finish: the next one cleans it up.",
+            "title": "Install State"
+          },
+          "installed_seed_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The seed Dreadovania last installed on this Switch, if any.",
+            "title": "Installed Seed Id"
+          },
           "last_test_at": {
             "anyOf": [
               {
@@ -950,7 +1018,9 @@
           "last_test_ok",
           "last_test_message",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "installed_seed_id",
+          "install_state"
         ],
         "title": "SwitchOut",
         "type": "object"
@@ -2071,6 +2141,59 @@
         "summary": "Download Mod",
         "tags": [
           "patching"
+        ]
+      }
+    },
+    "/api/v1/seeds/{seed_id}/push": {
+      "post": {
+        "description": "Install a patched seed on a saved Switch over FTP. Open ftpd on the Switch first.\n\nThe previous seed's files are removed first; other mods are kept. If the seed\nwould replace another mod's files, the job fails and lists them, unless\n`overwrite` is set. Follow the job for progress.",
+        "operationId": "send_to_switch_api_v1_seeds__seed_id__push_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "seed_id",
+            "required": true,
+            "schema": {
+              "title": "Seed Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Submitted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Send To Switch",
+        "tags": [
+          "switches"
         ]
       }
     },

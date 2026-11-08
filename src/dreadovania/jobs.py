@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ftplib
+import json
 import logging
 import os
 import secrets
 import shutil
+import threading
 import time
 import uuid
 from collections.abc import Callable
@@ -21,12 +24,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from dreadovania import validation
+from dreadovania import switches, validation
 from dreadovania.db import Database, row_to_dict, utc_now
 from dreadovania.mods import ModError, finalize_mod
 from dreadovania.presets import PresetStore, bundled_dread_presets, is_user_preset
+from dreadovania.push import Progress, PushError, PushOptions, push
 from dreadovania.romfs import RomfsInspector
 from dreadovania.runner import ExportRequest, GenerateRequest, Runner, RunnerError
+from dreadovania.switches import SwitchError
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +40,10 @@ INTERRUPTED = "interrupted: the server stopped while this job was running"
 
 class QueueFull(Exception):
     pass
+
+
+class CannotSend(Exception):
+    """Sending to a Switch can't start. The message is safe to show to the user."""
 
 
 class CannotPatch(Exception):
@@ -74,6 +83,8 @@ class JobQueue:
         self.max_queued_per_owner = max_queued_per_owner
         self.progress_interval = progress_interval
         self.romfs = romfs
+        # Resolves a Switch's address (tests replace it).
+        self.switch_resolver: switches.Resolver = switches.resolve
         # True while uploaded game files are being installed (set by the app).
         self.romfs_busy: Callable[[], bool] = lambda: False
 
@@ -169,6 +180,49 @@ class JobQueue:
                 "INSERT INTO jobs (id, owner_id, seed_id, kind, status, created_at)"
                 " VALUES (?, ?, ?, 'export', 'queued', ?)",
                 (job_id, owner_id, seed_id, now),
+            )
+        self._notify_from_any_thread()
+        return Submitted(seed_id=seed_id, job_id=job_id)
+
+    def submit_push(
+        self,
+        owner_id: str,
+        seed_id: str,
+        switch_id: str,
+        *,
+        overwrite: bool = False,
+        clear: bool = False,
+    ) -> Submitted:
+        """Queue sending a patched seed to a saved Switch (ADR 0016)."""
+        job_id, now = new_id(), utc_now()
+        with self.db.transaction() as conn:
+            seed = conn.execute(
+                "SELECT s.status, m.status AS mod_status FROM seeds s"
+                " LEFT JOIN mods m ON m.seed_id = s.id WHERE s.id = ? AND s.owner_id = ?",
+                (seed_id, owner_id),
+            ).fetchone()
+            if seed is None:
+                raise LookupError(seed_id)
+            if seed["mod_status"] != "ready":
+                raise CannotSend("patch this seed for Switch first")
+            switch = conn.execute(
+                "SELECT 1 FROM switches WHERE id = ? AND owner_id = ?", (switch_id, owner_id)
+            ).fetchone()
+            if switch is None:
+                raise CannotSend("that Switch isn't saved: add it on the Switches page")
+            busy = conn.execute(
+                "SELECT 1 FROM jobs WHERE kind = 'push' AND status IN ('queued', 'running')"
+                " AND owner_id = ? AND json_extract(params, '$.switch_id') = ?",
+                (owner_id, switch_id),
+            ).fetchone()
+            if busy is not None:
+                raise CannotSend("a seed is already being sent to that Switch")
+            self._check_queue_room(conn, owner_id)
+            params = json.dumps({"switch_id": switch_id, "overwrite": overwrite, "clear": clear})
+            conn.execute(
+                "INSERT INTO jobs (id, owner_id, seed_id, kind, status, params, created_at)"
+                " VALUES (?, ?, ?, 'push', 'queued', ?, ?)",
+                (job_id, owner_id, seed_id, params, now),
             )
         self._notify_from_any_thread()
         return Submitted(seed_id=seed_id, job_id=job_id)
@@ -301,7 +355,8 @@ class JobQueue:
     def _claim_next(self) -> dict[str, Any] | None:
         with self.db.transaction() as conn:
             row = conn.execute(
-                "SELECT j.id, j.owner_id, j.seed_id, j.kind, s.preset_key, s.requested_permalink,"
+                "SELECT j.id, j.owner_id, j.seed_id, j.kind, j.params, s.preset_key,"
+                " s.requested_permalink,"
                 " s.seed_number, s.race FROM jobs j JOIN seeds s ON s.id = j.seed_id"
                 " WHERE j.status = 'queued' ORDER BY j.created_at, j.rowid LIMIT 1"
             ).fetchone()
@@ -331,7 +386,7 @@ class JobQueue:
                 self._set_progress(job_id, line)
                 self._bump_soon()
 
-        work = self._generate if job["kind"] == "generate" else self._export
+        work = {"generate": self._generate, "export": self._export, "push": self._push}[job["kind"]]
         task = asyncio.create_task(work(job, workdir, on_progress))
         self._current = (job_id, task)
         if job_id in self._cancel_requested:
@@ -353,7 +408,7 @@ class JobQueue:
                 with self.db.transaction() as conn:
                     self._finish(conn, job, "failed", INTERRUPTED)
                 raise
-        except (RunnerError, ModError) as exc:
+        except (RunnerError, ModError, PushError, SwitchError) as exc:
             with self.db.transaction() as conn:
                 self._finish(conn, job, "failed", str(exc))
         except Exception:
@@ -408,6 +463,85 @@ class JobQueue:
             (game_files.version, info.file_count, info.size_bytes, utc_now(), job["seed_id"]),
         )
 
+    async def _push(self, job: dict[str, Any], workdir: Path, on_progress: Any) -> _Update:
+        """Send a patched seed to a Switch over FTP, in a worker thread (ADR 0016)."""
+        params = json.loads(job["params"] or "{}")
+        switch_id = params.get("switch_id", "")
+        owner = job["owner_id"]
+        mod_dir = self._seed_dir(job) / "mod"
+        if not mod_dir.is_dir():
+            raise PushError("the patched files are missing: patch the seed again")
+        with self.db.connect() as conn:
+            target = row_to_dict(
+                conn.execute(
+                    "SELECT host, port, username, password FROM switches"
+                    " WHERE id = ? AND owner_id = ?",
+                    (switch_id, owner),
+                ).fetchone()
+            )
+            installed = conn.execute(
+                "SELECT files FROM switch_installs WHERE switch_id = ?", (switch_id,)
+            ).fetchone()
+        if target is None:
+            raise PushError("the Switch was removed before the seed could be sent")
+        previous = json.loads(installed["files"]) if installed else []
+        options = PushOptions(
+            overwrite=bool(params.get("overwrite")), clear=bool(params.get("clear"))
+        )
+
+        loop = asyncio.get_running_loop()
+        stop = threading.Event()
+
+        def record_planned(files: list[str]) -> None:
+            self._record_install(owner, switch_id, job["seed_id"], files, "installing")
+
+        def progress(p: Progress) -> None:
+            loop.call_soon_threadsafe(on_progress, p.describe())
+
+        def send() -> list[str]:
+            loop.call_soon_threadsafe(on_progress, "Connecting to the Switch")
+            ftp = switches.connect(target, self.switch_resolver, ftplib.FTP)
+            try:
+                return push(
+                    ftp, mod_dir, seed_id=job["seed_id"], previous=previous, options=options,
+                    record_planned=record_planned, on_progress=progress, cancelled=stop.is_set,
+                )  # fmt: skip
+            except (ftplib.Error, OSError, EOFError) as exc:
+                raise PushError(f"the connection to the Switch was lost ({exc})") from None
+            finally:
+                with contextlib.suppress(ftplib.Error, OSError, EOFError):
+                    ftp.quit()
+
+        sending = asyncio.ensure_future(asyncio.to_thread(send))
+        try:
+            files = await asyncio.shield(sending)
+        except asyncio.CancelledError:
+            stop.set()  # the thread stops before its next file
+            with contextlib.suppress(Exception):
+                await sending
+            raise
+        on_progress("Sent. Close ftpd and launch Dread with a new save file.")
+        return (
+            "INSERT INTO switch_installs (switch_id, owner_id, seed_id, files, state, updated_at)"
+            " VALUES (?, ?, ?, ?, 'installed', ?) ON CONFLICT (switch_id) DO UPDATE SET"
+            " seed_id = excluded.seed_id, files = excluded.files, state = 'installed',"
+            " updated_at = excluded.updated_at",
+            (switch_id, owner, job["seed_id"], json.dumps(files), utc_now()),
+        )
+
+    def _record_install(
+        self, owner: str, switch_id: str, seed_id: str, files: list[str], state: str
+    ) -> None:
+        with self.db.connect() as conn:
+            conn.execute(
+                "INSERT INTO switch_installs"
+                " (switch_id, owner_id, seed_id, files, state, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (switch_id) DO UPDATE SET"
+                " seed_id = excluded.seed_id, files = excluded.files, state = excluded.state,"
+                " updated_at = excluded.updated_at",
+                (switch_id, owner, seed_id, json.dumps(files), state, utc_now()),
+            )
+
     def _request_for(self, job: dict[str, Any], workdir: Path) -> GenerateRequest:
         key = job["preset_key"]
         if key is None:
@@ -436,6 +570,8 @@ class JobQueue:
             "UPDATE jobs SET status = ?, error = ?, finished_at = ? WHERE id = ?",
             (status, error, now, job["id"]),
         )
+        if job["kind"] == "push":
+            return  # a failed send changes nothing about the seed or its mod
         table = "seeds" if job["kind"] == "generate" else "mods"
         key = "id" if table == "seeds" else "seed_id"
         conn.execute(

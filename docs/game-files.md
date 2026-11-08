@@ -114,4 +114,31 @@ The patched files stay on the server, next to the seed, until you delete them
 is typically tens of MB: the patcher writes only the assets the seed changes,
 which the loader reads ahead of the game's own packages.
 
-Patching is limited to `DREADOVANIA_EXPORT_TIMEOUT_SECONDS` (default 1800).
+## Sending a seed to the Switch
+
+Copying a mod over MTP is slow, because a mod is many small files. Instead, the
+server can install it over Wi-Fi through **ftpd** on the Switch (ADR 0016):
+
+1. **Once:** on **Switches**, add your Switch with the address and port ftpd
+   shows (port 5000 by default), and press **Test connection** with ftpd open.
+   Only addresses on your own network are accepted, because FTP isn't encrypted.
+   Give the Switch a fixed address in your router (a DHCP reservation) so it
+   keeps working.
+2. **Each seed:** open ftpd on the Switch. On the patched seed's page, under
+   **Send to Switch**, choose the Switch and press **Send to Switch**.
+3. When it says **Sent**, close ftpd and launch Dread with a new save file.
+
+**What a send changes on the SD card:**
+- It removes the files the previous Dreadovania seed installed, then copies
+  this seed into `atmosphere/contents/010093801237c000/` (and
+  `atmosphere/exefs_patches/DreadRandovania/`).
+- It records the files it installed in `/config/dreadovania/installed.json`, so
+  the next send (from this or another server) can remove exactly those.
+- **Other mods are kept.** If this seed would replace a file that another mod
+  installed, the send stops and lists the files. Under **Options**, **Replace
+  other mods' files** replaces them, and **Empty Dread's mod folder first**
+  removes everything in Dread's mod folders, other Dread mods included.
+- If a send is interrupted (cancelled, or the connection drops), the next send
+  cleans up what was copied.
+
+ (default 1800).
