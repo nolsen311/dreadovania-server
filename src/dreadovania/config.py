@@ -27,6 +27,8 @@ class Settings(BaseSettings):
 
     # Job runner (ADR 0011 §2).
     job_timeout_seconds: float = Field(default=600, gt=0)
+    # Patching reads and rewrites several GB, so it gets longer (ADR 0013 §2).
+    export_timeout_seconds: float = Field(default=1800, gt=0)
     max_queued_jobs_per_user: int = Field(default=5, ge=1)
 
     @property

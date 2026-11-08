@@ -51,3 +51,22 @@ The version is identified the same way the Dread patcher does it: from the MD5 o
 Your game files never leave your server. The server only reports their status
 (version, number of files, total size): it never serves, lists or logs their
 contents or paths.
+
+## Patching a seed
+
+On a generated seed's page, choose **Patch for Switch**. Patching takes a few
+minutes and runs in the same queue as generation, one job at a time. Race seeds
+can be patched too: patching never shows the spoiler.
+
+When it finishes, **Download for Switch (.zip)** and extract the zip at the root
+of your SD card. It contains an `atmosphere/` folder:
+
+- `atmosphere/contents/010093801237c000/` holds the patched game files, and
+- `atmosphere/exefs_patches/DreadRandovania/` holds the code patches.
+
+Installing a seed replaces whichever seed was installed before, so start a new
+save file for each seed. The patched files stay on the server, next to the seed,
+until you delete them (**Delete patched files**), delete the seed, or purge old
+seeds. Each patched seed takes a few hundred MB.
+
+Patching is limited to `DREADOVANIA_EXPORT_TIMEOUT_SECONDS` (default 1800).

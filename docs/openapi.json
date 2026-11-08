@@ -105,6 +105,14 @@
             "title": "Id",
             "type": "string"
           },
+          "kind": {
+            "enum": [
+              "generate",
+              "export"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
           "progress": {
             "anyOf": [
               {
@@ -146,6 +154,7 @@
         "required": [
           "id",
           "seed_id",
+          "kind",
           "status",
           "progress",
           "error",
@@ -174,6 +183,96 @@
           "password"
         ],
         "title": "LoginRequest",
+        "type": "object"
+      },
+      "ModOut": {
+        "description": "A seed's patched files, for Atmosphere (ADR 0013 \u00a73).",
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "file_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Count"
+          },
+          "game_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Game Version"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "randovania_version": {
+            "title": "Randovania Version",
+            "type": "string"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "ready",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "game_version",
+          "file_count",
+          "size_bytes",
+          "randovania_version",
+          "created_at",
+          "completed_at",
+          "job_id"
+        ],
+        "title": "ModOut",
         "type": "object"
       },
       "PresetOut": {
@@ -366,7 +465,19 @@
                 "type": "null"
               }
             ],
+            "description": "The job that generated this seed.",
             "title": "Job Id"
+          },
+          "mod": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The patched files, once the seed has been patched."
           },
           "permalink": {
             "anyOf": [
@@ -475,7 +586,8 @@
           "randovania_version",
           "created_at",
           "completed_at",
-          "job_id"
+          "job_id",
+          "mod"
         ],
         "title": "SeedOut",
         "type": "object"
@@ -1282,6 +1394,122 @@
         "summary": "Get Seed",
         "tags": [
           "seeds"
+        ]
+      }
+    },
+    "/api/v1/seeds/{seed_id}/mod": {
+      "delete": {
+        "description": "Delete a seed's patched files to free space. The seed itself is kept.",
+        "operationId": "delete_mod_api_v1_seeds__seed_id__mod_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "seed_id",
+            "required": true,
+            "schema": {
+              "title": "Seed Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Mod",
+        "tags": [
+          "patching"
+        ]
+      },
+      "post": {
+        "description": "Patch a generated seed into the server's game files. Follow the job for progress.\n\nNeeds ready game files (see `GET /romfs`). Race seeds can be patched: patching\ndoesn't reveal the spoiler.",
+        "operationId": "patch_seed_api_v1_seeds__seed_id__mod_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "seed_id",
+            "required": true,
+            "schema": {
+              "title": "Seed Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Submitted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Seed",
+        "tags": [
+          "patching"
+        ]
+      }
+    },
+    "/api/v1/seeds/{seed_id}/mod.zip": {
+      "get": {
+        "description": "Download the patched seed as a zip. Extract it at the root of the SD card.\n\nIt contains `atmosphere/\u2026`, made from your own game files: don't share it.",
+        "operationId": "download_mod_api_v1_seeds__seed_id__mod_zip_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "seed_id",
+            "required": true,
+            "schema": {
+              "title": "Seed Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/zip": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Mod",
+        "tags": [
+          "patching"
         ]
       }
     },

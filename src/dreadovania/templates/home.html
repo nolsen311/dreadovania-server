@@ -35,6 +35,7 @@
       <span class="badge {{ s.status }}">{{ s.status }}</span>
       <strong>{{ s.preset_name or "Permalink" }}</strong>
       {% if s.race %}<span class="badge race">race</span>{% endif %}
+      {% if s.mod_status == "ready" %}<span class="badge ready">patched · {{ s.mod_size_bytes | filesizeformat }}</span>{% endif %}
       <small>{{ s.seed_hash or "" }} · {{ s.created_at[:16] | replace("T", " ") }} UTC</small>
     </a>
   </li>

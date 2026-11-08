@@ -1,0 +1,39 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{# The "Patch for Switch" part of a seed page (ADR 0013). Polls while patching. #}
+<section id="mod" class="card stack"
+  {% if seed.mod_status == "pending" %}hx-get="/seeds/{{ seed.id }}/mod/status" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <h2>Patch for Switch</h2>
+  {% if seed.mod_status == "ready" %}
+    <p><span class="badge ready">patched</span></p>
+    <dl class="details">
+      {% if seed.mod_game_version %}<dt>Game version</dt><dd>{{ seed.mod_game_version }}</dd>{% endif %}
+      {% if seed.mod_size_bytes is not none %}<dt>Size</dt><dd>{{ seed.mod_size_bytes | filesizeformat }}</dd>{% endif %}
+    </dl>
+    <a class="button primary" href="/api/v1/seeds/{{ seed.id }}/mod.zip" download>Download for Switch (.zip)</a>
+    <p class="muted">Extract the zip at the root of your SD card: it contains an
+      <code>atmosphere</code> folder. It replaces any seed already installed, so start
+      a new save file for this seed. It's made from your own game files: don't share it.</p>
+    <form hx-post="/seeds/{{ seed.id }}/mod/delete" hx-confirm="Delete the patched files? You can patch the seed again later.">
+      <button type="submit" class="danger small">Delete patched files</button>
+    </form>
+  {% elif seed.mod_status == "pending" %}
+    <p><span class="badge pending">patching</span>
+      {{ "Waiting to start…" if mod_job and mod_job.status == "queued" else "Patching… this takes a few minutes." }}</p>
+    {% if mod_job and mod_job.progress %}<p class="progress mono">{{ mod_job.progress }}</p>{% endif %}
+    {% if mod_job %}<form hx-post="/jobs/{{ mod_job.id }}/cancel"><button type="submit">Cancel</button></form>{% endif %}
+  {% else %}
+    {% if seed.mod_status == "failed" and mod_job and mod_job.error %}
+      <p class="error">Patching failed: {{ mod_job.error }}</p>
+    {% elif seed.mod_status == "cancelled" %}
+      <p class="muted">Patching was cancelled.</p>
+    {% endif %}
+    {% if romfs and romfs.ready %}
+      <p>Make a mod from this seed and your game files (Dread {{ romfs.version }}), ready to copy to your Switch.</p>
+      <form hx-post="/seeds/{{ seed.id }}/patch" hx-target="#messages">
+        <button type="submit" class="primary">{{ "Try again" if seed.mod_status else "Patch for Switch" }}</button>
+      </form>
+    {% else %}
+      <p>To play this seed, add your game files first. <a href="/game-files">Set up game files</a></p>
+    {% endif %}
+  {% endif %}
+</section>
