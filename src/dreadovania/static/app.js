@@ -50,6 +50,23 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // htmx doesn't show failed requests by default, so a refused action (for
+  // example a cross-site check after opening the server at another address)
+  // looked like nothing happening. Show the server's explanation instead.
+  document.body.addEventListener("htmx:responseError", (event) => {
+    const xhr = event.detail.xhr;
+    let problem = {};
+    try {
+      problem = JSON.parse(xhr.responseText);
+    } catch {
+      // not a problem+json response
+    }
+    say(problem.detail || problem.title || `The request failed (HTTP ${xhr.status}).`);
+  });
+  document.body.addEventListener("htmx:sendError", () => {
+    say("Couldn't reach the server. Check the connection and try again.");
+  });
+
   // Game files: resumable, chunked upload of a RomFS archive (ADR 0013).
   const uploadBox = document.getElementById("romfs-upload");
   if (uploadBox && document.getElementById("romfs-start")) setUpRomfsUpload(uploadBox);

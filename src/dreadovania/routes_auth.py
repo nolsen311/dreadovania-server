@@ -62,7 +62,16 @@ def check_origin(request: Request, expected: str | None, *, required: bool) -> N
     except auth.AuthError:
         matches = False  # e.g. "null" from a sandboxed page
     if not matches:
-        raise ApiProblem(403, "Cross-site request refused", "the request's origin isn't allowed")
+        # The usual cause is opening the server at another address than the public
+        # URL chosen at setup (an IP instead of the hostname, or http behind an
+        # https proxy), so say which address to use. It's the server's own address.
+        detail = (
+            f"this page is open at {origin}, but the server's address is {expected}: "
+            f"open {expected} instead"
+            if expected is not None
+            else "the request's origin isn't allowed"
+        )
+        raise ApiProblem(403, "Cross-site request refused", detail)
 
 
 def _set_session_cookie(response: Response, token: str, origin: str | None) -> None:

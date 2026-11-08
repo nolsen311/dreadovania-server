@@ -209,6 +209,16 @@ def test_cross_site_change_is_refused(signed_in) -> None:
     assert signed_in.get("/api/v1/auth/session").status_code == 200  # still signed in
 
 
+def test_a_refused_origin_says_which_address_to_open(signed_in) -> None:
+    # The usual real-world cause: the server opened at its IP address while the
+    # public URL chosen at setup is its hostname (or http vs https).
+    response = signed_in.post("/logout", headers={"Origin": "http://192.168.1.20:8080"})
+    assert response.status_code == 403
+    detail = response.json()["detail"]
+    assert "http://192.168.1.20:8080" in detail
+    assert signed_in.base_url.scheme + "://" + signed_in.base_url.host in detail
+
+
 def test_change_without_origin_is_refused(signed_in) -> None:
     assert signed_in.post("/api/v1/auth/logout").status_code == 403
 
