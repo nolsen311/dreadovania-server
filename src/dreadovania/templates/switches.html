@@ -1,0 +1,57 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{% extends "base.html" %}
+{% block title %}Switches · Dreadovania{% endblock %}
+{% block content %}
+<h1>Switches</h1>
+<p class="muted">Dreadovania sends patched seeds to your Switch over FTP, through
+  <strong>ftpd</strong> running on the console. Only Switches on your own network can be
+  added: FTP isn't encrypted.</p>
+
+{% for s in switches %}
+<div class="card stack">
+  <h2>{{ s.name }}</h2>
+  <dl class="details">
+    <dt>Address</dt><dd class="mono">{{ s.host }}:{{ s.port }}</dd>
+    <dt>Login</dt><dd>{% if s.username %}{{ s.username }}{% if s.has_password %} (password saved){% endif %}{% else %}none (ftpd's default){% endif %}</dd>
+  </dl>
+  <div id="test-{{ s.id }}">
+    {% if s.last_test_at %}
+      <p class="{{ 'ok' if s.last_test_ok else 'error' }}">{{ s.last_test_message }}
+        <small>({{ s.last_test_at[:16] | replace("T", " ") }} UTC)</small></p>
+    {% endif %}
+  </div>
+  <form hx-post="/switches/{{ s.id }}/test" hx-target="#test-{{ s.id }}" hx-disabled-elt="find button">
+    <button type="submit">Test connection</button>
+  </form>
+  <p class="muted"><small>Open ftpd on the Switch first. A test takes up to about ten
+    seconds if the Switch doesn't answer.</small></p>
+  <form hx-post="/switches/{{ s.id }}/delete" hx-confirm="Remove {{ s.name }}?">
+    <button type="submit" class="danger small">Remove</button>
+  </form>
+</div>
+{% endfor %}
+
+<h2>Add a Switch</h2>
+<form method="post" action="/switches" hx-post="/switches" hx-target="#messages" class="card stack" autocomplete="off">
+  <label>Name
+    <input name="name" maxlength="60" required placeholder="Living room Switch">
+  </label>
+  <label>Address <small>(shown at the top of ftpd, for example 192.168.1.50)</small>
+    <input name="host" maxlength="253" required inputmode="url" autocapitalize="off" spellcheck="false">
+  </label>
+  <label>Port <small>(ftpd uses 5000)</small>
+    <input name="port" class="short" inputmode="numeric" pattern="[0-9]*" maxlength="5" value="5000">
+  </label>
+  <details>
+    <summary>Login (only if you set one in ftpd)</summary>
+    <div class="stack">
+      <label>Username <input name="username" maxlength="128" autocomplete="off" autocapitalize="off"></label>
+      <label>Password <small>(saved on the server, never shown again)</small>
+        <input name="password" type="password" maxlength="128" autocomplete="new-password"></label>
+    </div>
+  </details>
+  <button type="submit" class="primary">Add Switch</button>
+  <p class="muted"><small>Tip: give the Switch a fixed address in your router (a DHCP
+    reservation), so the saved address keeps working.</small></p>
+</form>
+{% endblock %}

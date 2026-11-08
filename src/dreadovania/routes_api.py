@@ -31,6 +31,7 @@ from dreadovania.romfs_upload import (
 )
 from dreadovania.routes_auth import API_PREFIX, CurrentUser, require_user
 from dreadovania.seeds import NoSpoiler, SeedBusy, SeedNotReady, SeedStore, is_uuid
+from dreadovania.switches import SwitchError, SwitchStore
 from dreadovania.validation import InvalidInput
 
 router = APIRouter(prefix=API_PREFIX, dependencies=[Depends(require_user)])
@@ -538,6 +539,126 @@ def delete_mod(seed_id: str, request: Request, user: CurrentUser) -> None:
         raise ApiProblem(409, "Patching in progress", "cancel its job first") from None
     if not deleted:
         raise _not_found("Patched files")
+
+
+# ---- Switches (ADR 0016) ------------------------------------------------------------------
+
+
+class SwitchIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    host: str = Field(
+        min_length=1, max_length=253,
+        description="The Switch's local-network address, as ftpd shows it (an IP or a local name).",
+    )  # fmt: skip
+    port: int = Field(default=5000, ge=1, le=65535, description="ftpd's port (5000 by default).")
+    username: str | None = Field(default=None, max_length=128)
+    password: str | None = Field(
+        default=None, max_length=128, description="Write-only: never returned."
+    )
+
+
+class SwitchUpdate(BaseModel):
+    """Only the fields sent are changed. Send `password: null` (or "") to remove it."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=60)
+    host: str | None = Field(default=None, min_length=1, max_length=253)
+    port: int | None = Field(default=None, ge=1, le=65535)
+    username: str | None = Field(default=None, max_length=128)
+    password: str | None = Field(default=None, max_length=128, description="Write-only.")
+
+
+class SwitchOut(BaseModel):
+    id: str
+    name: str
+    host: str
+    port: int
+    username: str | None
+    has_password: bool
+    last_test_at: str | None
+    last_test_ok: bool | None
+    last_test_message: str | None
+    created_at: str
+    updated_at: str
+
+
+class ConnectionTest(BaseModel):
+    ok: bool
+    message: str
+
+
+def _switches(request: Request) -> SwitchStore:
+    return request.app.state.switches
+
+
+def _switch_problem(exc: SwitchError) -> ApiProblem:
+    return ApiProblem(400, "Invalid Switch", str(exc))
+
+
+@router.get("/switches", tags=["switches"])
+def list_switches(request: Request, user: CurrentUser) -> list[SwitchOut]:
+    """Your saved Switches. Passwords are never included."""
+    return [SwitchOut(**s) for s in _switches(request).list(user.user_id)]
+
+
+@router.post("/switches", status_code=status.HTTP_201_CREATED, tags=["switches"])
+async def add_switch(body: SwitchIn, request: Request, user: CurrentUser) -> SwitchOut:
+    """Save a Switch running ftpd on your local network (public addresses are refused)."""
+    try:
+        created = await run_in_threadpool(
+            _switches(request).create, user.user_id, body.model_dump()
+        )
+    except SwitchError as exc:
+        raise _switch_problem(exc) from None
+    return SwitchOut(**created)
+
+
+@router.get("/switches/{switch_id}", tags=["switches"])
+def get_switch(switch_id: str, request: Request, user: CurrentUser) -> SwitchOut:
+    found = _switches(request).get(user.user_id, switch_id) if is_uuid(switch_id) else None
+    if found is None:
+        raise _not_found("Switch")
+    return SwitchOut(**found)
+
+
+@router.patch("/switches/{switch_id}", tags=["switches"])
+async def update_switch(
+    switch_id: str, body: SwitchUpdate, request: Request, user: CurrentUser
+) -> SwitchOut:
+    """Change a Switch. Fields left out are kept, including the password."""
+    if not is_uuid(switch_id):
+        raise _not_found("Switch")
+    fields = body.model_dump(include=body.model_fields_set)
+    try:
+        updated = await run_in_threadpool(
+            _switches(request).update, user.user_id, switch_id, fields
+        )
+    except SwitchError as exc:
+        raise _switch_problem(exc) from None
+    if updated is None:
+        raise _not_found("Switch")
+    return SwitchOut(**updated)
+
+
+@router.delete("/switches/{switch_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["switches"])
+def delete_switch(switch_id: str, request: Request, user: CurrentUser) -> None:
+    if not is_uuid(switch_id) or not _switches(request).delete(user.user_id, switch_id):
+        raise _not_found("Switch")
+
+
+@router.post("/switches/{switch_id}/test", tags=["switches"])
+async def test_switch(switch_id: str, request: Request, user: CurrentUser) -> ConnectionTest:
+    """Log in to ftpd on the Switch and check for the Atmosphere folder.
+
+    Open ftpd on the Switch first. Takes up to about ten seconds if it doesn't answer.
+    """
+    result = (
+        await run_in_threadpool(_switches(request).test, user.user_id, switch_id)
+        if is_uuid(switch_id)
+        else None
+    )
+    if result is None:
+        raise _not_found("Switch")
+    return ConnectionTest(ok=result.ok, message=result.message)
 
 
 # ---- jobs ---------------------------------------------------------------------------------
