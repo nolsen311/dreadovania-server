@@ -83,8 +83,18 @@ follow-up pull request that adds an entry to
    its checks didn't pass, or the version is already released or isn't newer
    than the latest release. A 👍 on your comment means the tag was created.
    Only the repository owner can trigger it (see ADRs 0014 and 0015).
-4. When the Release workflow finishes, verify the image as `SECURITY.md`
-   describes and deploy it by digest.
+4. Approve the `release` environment's deployment on the Release run's page.
+   When the run finishes, it also creates the version's entry on the Releases
+   page: the image's tag and digest, the verify command, and notes generated
+   from the pull requests merged since the previous version tag.
+5. Verify the image as `SECURITY.md` describes and deploy it by digest.
+
+A version released before the workflow created release entries (0.1.1, 0.1.2)
+can be given one by hand, without creating a tag:
+
+```bash
+gh release create v0.1.2 --verify-tag --generate-notes --notes-start-tag v0.1.1
+```
 
 Pushing a `v*` tag yourself still works too.
 

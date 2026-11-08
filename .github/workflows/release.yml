@@ -32,6 +32,8 @@ jobs:
       packages: write      # push to GHCR
       id-token: write      # keyless signing and attestations (Sigstore OIDC)
       attestations: write  # GitHub build-provenance attestation
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
@@ -174,3 +176,54 @@ jobs:
             echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY}"
+
+  # The release page entry, written only once the image above is published,
+  # scanned, signed and attested. It doesn't check out or run any of the
+  # repository's code, so it is the only job that can write to the repository.
+  notes:
+    name: Release notes
+    needs: release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write  # create the GitHub Release for the existing tag
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          DIGEST: ${{ needs.release.outputs.digest }}
+        run: |
+          if gh release view "${TAG}" > /dev/null 2>&1; then
+            echo "::notice::${TAG} already has a release; leaving it as it is"
+            exit 0
+          fi
+          version="${TAG#v}"
+          # Notes start from the previous version tag, whether or not it has a
+          # release entry of its own.
+          previous="$(gh api --paginate "repos/${GH_REPO}/tags" --jq '.[].name' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -V | awk -v tag="${TAG}" '$0 == tag { print last; exit } { last = $0 }')"
+          {
+            echo "## Container image"
+            echo
+            echo '```'
+            echo "${IMAGE}:${version}"
+            echo "${IMAGE}@${DIGEST}"
+            echo '```'
+            echo
+            echo "Deploy by digest, after verifying it (see SECURITY.md):"
+            echo
+            echo '```bash'
+            echo "gh attestation verify oci://${IMAGE}@${DIGEST} --repo ${GH_REPO}"
+            echo '```'
+            echo
+          } > notes.md
+          args=(--verify-tag --title "${TAG}" --notes-file notes.md --generate-notes)
+          [ -n "${previous}" ] && args+=(--notes-start-tag "${previous}")
+          case "${TAG}" in *-*) args+=(--prerelease) ;; esac
+          gh release create "${TAG}" "${args[@]}"
