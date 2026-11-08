@@ -5,6 +5,10 @@ name: Release
 on:
   push:
     tags: ["v*.*.*"]
+  # Started by the "/release" workflow on the tag it creates (ADR 0014): a tag
+  # created with a workflow token doesn't trigger "push" by itself. The run's
+  # ref is still refs/tags/vX.Y.Z, so signatures and attestations are the same.
+  workflow_dispatch:
 
 permissions: {}
 
@@ -34,6 +38,22 @@ jobs:
       - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
+
+      - name: Only from a version tag, started by a tag push or by /release
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          ACTOR: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          if [[ ! "${REF}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::releases run only on a version tag, not ${REF}"
+            exit 1
+          fi
+          if [ "${EVENT}" = "workflow_dispatch" ] && [ "${ACTOR}" != "github-actions[bot]" ] && [ "${ACTOR}" != "${OWNER}" ]; then
+            echo "::error::only the /release workflow or the repository owner can start a release (not ${ACTOR})"
+            exit 1
+          fi
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

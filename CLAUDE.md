@@ -12,6 +12,9 @@ They exist so that the project's history is a trustworthy audit trail.
   the maintainer's actions, even when tools would technically allow them.
 - **Never post a `/signoff` comment**, or anything that starts with `/signoff`.
   It merges with the maintainer's sign-off (ADR 0012); only they may post it.
+- **Never post a `/release` comment**, or anything that starts with `/release`.
+  It publishes a release (ADR 0014); only the maintainer may post it. When asked
+  for a release, open the pull request that bumps the version, and stop there.
 - **Never change repository settings, rulesets, environments or secrets.**
   Propose changes in a pull request (for example to `.github/rulesets/`) and
   let the maintainer apply them.

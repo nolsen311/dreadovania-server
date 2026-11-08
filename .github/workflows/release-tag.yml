@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# "/release" by comment (ADR 0014): when the repository owner comments exactly
+# "/release" on a merged pull request, tag its merge commit with the version in
+# pyproject.toml at that commit, and start the Release workflow on the tag.
+# Lets the maintainer publish a release from a phone.
+#
+# Safety:
+# - Only an exact "/release" comment from the repository owner (checked here and
+#   again in the script). Edited comments don't count.
+# - Never checks out or runs pull request code: it checks out the default
+#   branch, where the script lives, and talks to the API.
+# - Tags only a merged pull request's merge commit that is on the default
+#   branch, whose tested commit passed every check, with a version that is new
+#   and newer than every release.
+# - The tag ruleset lets only admins and GitHub Actions create v* tags; this is
+#   the only workflow that does.
+
+name: Release by comment
+
+on:
+  # The same reasoning as signoff-merge.yml: issue_comment always runs the
+  # workflow as it is on the default branch, the job checks out only the
+  # default branch, and it acts only on the owner's exact "/release".
+  # Suppressed for this line only, with the maintainer's agreement (ADR 0014).
+  issue_comment:  # zizmor: ignore[dangerous-triggers]
+    types: [created]
+
+permissions: {}
+
+concurrency:
+  group: release-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Tag a release
+    if: >-
+      github.event.issue.pull_request &&
+      github.event.comment.user.login == github.repository_owner &&
+      github.event.comment.author_association == 'OWNER' &&
+      startsWith(github.event.comment.body, '/release')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write       # create the tag
+      actions: write        # start the Release workflow on it
+      checks: read          # the tested commit's checks
+      pull-requests: read   # the pull request and its merge commit
+      issues: write         # react and explain refusals
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      # The default branch only: never the pull request's code.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { run } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/release-tag.js`);
+            await run({ github, context, core }, {
+              versionFile: "pyproject.toml",
+              releaseWorkflow: "release.yml",
+            });

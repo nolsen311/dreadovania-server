@@ -71,6 +71,23 @@ job. History on `main` is never rewritten: the maintainer signs off on it in a
 follow-up pull request that adds an entry to
 [`docs/dco-remediations.md`](docs/dco-remediations.md).
 
+## Releasing (maintainer)
+
+1. A pull request bumps `version` in `pyproject.toml` (and `uv.lock`). Ask
+   Claude for "release X.Y.Z" and it opens one.
+2. Comment `/signoff` on it, as for any change.
+3. Once it has merged, comment exactly **`/release`** on the same pull request.
+   The *Release by comment* workflow tags the merge commit `vX.Y.Z` (the version
+   in `pyproject.toml` at that commit) and starts the Release workflow on the
+   tag. It refuses, with a comment saying why, if the pull request isn't merged,
+   its checks didn't pass, or the version is already released or isn't newer
+   than the latest release. A 👍 on your comment means the tag was created.
+   Only the repository owner can trigger it (see ADR 0014).
+4. When the Release workflow finishes, verify the image as `SECURITY.md`
+   describes and deploy it by digest.
+
+Pushing a `v*` tag yourself still works too.
+
 ## Security issues
 
 Don't open public issues for vulnerabilities. See [`SECURITY.md`](SECURITY.md).

@@ -24,7 +24,8 @@ approval: nobody can approve their own pull request.
   sign-off; it is remediated in `docs/dco-remediations.md`, never by rewriting history.
 - Rulesets on `main`: pull requests only, squash merge only, signed commits,
   linear history, required checks. **No required approving review.**
-- Release tags (`v*`) can only be created by repository admins.
+- Release tags (`v*`) can only be created by repository admins (and, since
+  ADR 0014, by the `/release` workflow on the owner's comment).
 - `CLAUDE.md` forbids Claude from signing off, merging, approving, tagging, or
   changing repository settings.
 
