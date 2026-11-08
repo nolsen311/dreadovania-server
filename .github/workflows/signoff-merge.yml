@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# "/signoff" by comment (ADR 0012): when the repository owner comments exactly
+# "/signoff" on a pull request, squash-merge it with the owner's Signed-off-by
+# line. Lets the maintainer certify and merge from a phone.
+#
+# Safety:
+# - Only an exact "/signoff" comment from the repository owner (checked here and
+#   again in the script). Edited comments don't count.
+# - Never checks out or runs pull request code: it checks out the default
+#   branch, where the script lives, and talks to the API.
+# - Merges only when GitHub reports the PR "clean" (required checks passed, no
+#   conflicts), and only the head commit it inspected.
+# - Merges made with the workflow token don't trigger further workflow runs, so
+#   "DCO audit" doesn't run for them; the sign-off is written by construction.
+
+name: Sign off and merge
+
+on:
+  # zizmor flags issue_comment because such workflows usually check out and run
+  # untrusted PR code with write access. This one doesn't: issue_comment always
+  # runs the workflow as it is on the default branch (a PR can't change it), the
+  # job checks out only the default branch, and it acts only on the owner's
+  # exact "/signoff". Suppressed for this line only, with the maintainer's
+  # agreement (CLAUDE.md), recorded in ADR 0012.
+  issue_comment:  # zizmor: ignore[dangerous-triggers]
+    types: [created]
+
+permissions: {}
+
+concurrency:
+  group: signoff-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  signoff:
+    name: Sign off and merge
+    if: >-
+      github.event.issue.pull_request &&
+      github.event.comment.user.login == github.repository_owner &&
+      github.event.comment.author_association == 'OWNER' &&
+      startsWith(github.event.comment.body, '/signoff')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write       # merge the pull request
+      pull-requests: write  # read it and explain refusals
+      issues: write         # react to the comment
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      # The default branch only: never the pull request's code.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { run } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/signoff-merge.js`);
+            await run({ github, context, core });
