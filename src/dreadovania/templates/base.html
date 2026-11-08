@@ -16,10 +16,11 @@
 </head>
 <body>
   <header class="bar">
-    <a href="/" class="brand"><img src="/static/icon.svg" alt="" width="28" height="28"> Dreadovania</a>
+    <a href="/" class="brand"><img src="/static/icon.svg" alt="" width="28" height="28"> <span class="brand-name">Dreadovania</span></a>
     {% if user %}
     <nav>
       <a href="/presets">Presets</a>
+      <a href="/game-files">Game files</a>
       <form method="post" action="/logout" hx-post="/logout" class="inline">
         <button type="submit" class="link">Sign out</button>
       </form>

@@ -1,0 +1,43 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{% extends "base.html" %}
+{% block title %}Game files · Dreadovania{% endblock %}
+{% block content %}
+<h1>Game files</h1>
+<div class="card stack">
+  <div>
+    {% if romfs.ready %}<span class="badge ready">ready</span>
+    {% elif romfs.state == "missing" %}<span class="badge pending">not set up</span>
+    {% else %}<span class="badge failed">needs attention</span>{% endif %}
+  </div>
+  <p id="romfs-message">{{ romfs.message }}</p>
+  {% if romfs.version or romfs.file_count is not none %}
+  <dl class="details">
+    {% if romfs.version %}<dt>Version</dt><dd>{{ romfs.version }}</dd>{% endif %}
+    {% if romfs.file_count is not none %}<dt>Files</dt><dd>{{ "{:,}".format(romfs.file_count) }}</dd>{% endif %}
+    {% if romfs.total_bytes is not none %}<dt>Size</dt><dd>{{ romfs.total_bytes | filesizeformat }}</dd>{% endif %}
+  </dl>
+  {% endif %}
+  <a class="button" href="/game-files">Check again</a>
+</div>
+
+<h2>What's needed</h2>
+<div class="card stack">
+  <p>Patching a seed needs the <strong>extracted RomFS</strong> of your own copy of the game,
+    version {{ supported | join(" or ") }}. Dump it from your game with a homebrew dumping tool
+    on your Switch.</p>
+  <p>Game packages (<code>.nsp</code>, <code>.xci</code>) and console keys are never accepted.
+    The game files stay on this server: they are never shown, downloaded or logged.</p>
+</div>
+
+<h2>How to add them</h2>
+<div class="card stack">
+  <p>Copy the RomFS folder to the server, then mount it at <code>/data/romfs</code>.
+    <code>system/</code> and <code>packs/</code> should be directly inside it. For example,
+    in <code>compose.yaml</code>:</p>
+  <pre class="mono">volumes:
+  - ./data:/data
+  - /path/to/dread-romfs:/data/romfs:ro</pre>
+  <p class="muted">The folder must be readable by the container's user (UID 10001).
+    Uploading from this page will come in a later update.</p>
+</div>
+{% endblock %}

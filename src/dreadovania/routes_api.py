@@ -18,6 +18,7 @@ from starlette.concurrency import run_in_threadpool
 from dreadovania.jobs import JobQueue, QueueFull
 from dreadovania.presets import MAX_PRESET_BYTES, PresetInfo, PresetStore
 from dreadovania.problems import ApiProblem
+from dreadovania.romfs import SUPPORTED_VERSIONS, RomfsStatus, State
 from dreadovania.routes_auth import API_PREFIX, CurrentUser, require_user
 from dreadovania.seeds import NoSpoiler, SeedBusy, SeedNotReady, SeedStore, is_uuid
 from dreadovania.validation import InvalidInput
@@ -136,6 +137,39 @@ class Spoiler(BaseModel):
     starting_location: StartingLocation | None
     starting_items: list[str]
     locations: list[SpoilerLocation]
+
+
+class RomfsOut(BaseModel):
+    """The game files' status. Never their contents, paths or file names."""
+
+    state: State
+    ready: bool
+    message: str
+    version: str | None
+    supported_versions: list[str]
+    file_count: int | None
+    total_bytes: int | None
+
+    @classmethod
+    def of(cls, s: RomfsStatus) -> RomfsOut:
+        return cls(
+            state=s.state,
+            ready=s.ready,
+            message=s.message,
+            version=s.version,
+            supported_versions=list(SUPPORTED_VERSIONS),
+            file_count=s.file_count,
+            total_bytes=s.total_bytes,
+        )
+
+
+# ---- game files -----------------------------------------------------------------------------
+
+
+@router.get("/romfs", tags=["game files"])
+async def get_romfs(request: Request, user: CurrentUser) -> RomfsOut:
+    """Whether the server has usable game files (an extracted RomFS), and which version."""
+    return RomfsOut.of(await run_in_threadpool(request.app.state.romfs.status))
 
 
 # ---- presets ------------------------------------------------------------------------------

@@ -15,10 +15,12 @@ from urllib.parse import parse_qs
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 
 from dreadovania import auth
 from dreadovania.jobs import QueueFull
 from dreadovania.problems import ApiProblem
+from dreadovania.romfs import SUPPORTED_VERSIONS
 from dreadovania.routes_auth import (
     SAFE_METHODS,
     check_origin,
@@ -282,6 +284,16 @@ async def purge(request: Request) -> Response:
         return render(request, "_error.html", message="the purge wasn't confirmed")
     request.app.state.seeds.purge(user.user_id, days)
     return go(request, "/")
+
+
+# ---- game files -------------------------------------------------------------------------------
+
+
+@router.get("/game-files")
+async def game_files_page(request: Request) -> Response:
+    user = page_session(request)
+    status = await run_in_threadpool(request.app.state.romfs.status)
+    return render(request, "game_files.html", user=user, romfs=status, supported=SUPPORTED_VERSIONS)
 
 
 # ---- presets ----------------------------------------------------------------------------------
