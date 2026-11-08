@@ -69,6 +69,7 @@ button.link { background: none; border: none; color: #fff; padding: 0; min-heigh
 .error { color: var(--bad); font-weight: 600; margin: 0 0 1rem; }
 .ok { color: var(--ok); font-weight: 600; margin: 0 0 1rem; }
 pre { margin: 0; padding: .75rem; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); white-space: pre; overflow-x: auto; min-width: 0; max-width: 100%; font-size: .8rem; }
+code { overflow-wrap: anywhere; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9rem; }
 .wrap { word-break: break-all; }
 .progress { color: var(--muted); margin: 0; }

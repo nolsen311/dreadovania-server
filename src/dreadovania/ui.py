@@ -8,6 +8,7 @@ rules apply: sessions, Origin checks on every change, rate limits, owner scoping
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
@@ -18,7 +19,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from dreadovania import auth
-from dreadovania.jobs import CannotPatch, QueueFull
+from dreadovania.jobs import CannotPatch, CannotSend, QueueFull
 from dreadovania.problems import ApiProblem
 from dreadovania.romfs import SUPPORTED_VERSIONS
 from dreadovania.routes_auth import (
@@ -225,7 +226,53 @@ def _status_context(request: Request, user: auth.Session, seed: dict) -> dict[st
         # Inspecting the game files walks the folder: only when patching could start.
         if seed["mod_status"] not in ("pending", "ready"):
             context["romfs"] = request.app.state.romfs.status()
+        if seed["mod_status"] == "ready":
+            context.update(_push_context(request, user, seed))
     return context
+
+
+def _push_context(request: Request, user: auth.Session, seed: dict) -> dict[str, Any]:
+    """The "Send to Switch" part of a patched seed's page (ADR 0016)."""
+    switches = request.app.state.switches.list(user.user_id)
+    push_job = (
+        request.app.state.jobs.get_job(seed["push_job_id"], user.user_id)
+        if seed.get("push_job_id")
+        else None
+    )
+    push_switch = None
+    if push_job and push_job.get("params"):
+        switch_id = json.loads(push_job["params"]).get("switch_id")
+        push_switch = next((s for s in switches if s["id"] == switch_id), None)
+    return {"seed": seed, "switches": switches, "push_job": push_job, "push_switch": push_switch}
+
+
+@router.post("/seeds/{seed_id}/push")
+async def push_seed(seed_id: str, request: Request) -> Response:
+    user = page_session(request)
+    form = await read_form(request)
+    try:
+        request.app.state.jobs.submit_push(
+            user.user_id,
+            seed_id,
+            form.get("switch_id", ""),
+            overwrite=form.get("overwrite") == "on",
+            clear=form.get("clear") == "on",
+        )
+    except LookupError:
+        return render(request, "_error.html", status_code=404, message="seed not found")
+    except (CannotSend, QueueFull) as exc:
+        return render(request, "_error.html", message=str(exc))
+    return go(request, f"/seeds/{seed_id}")
+
+
+@router.get("/seeds/{seed_id}/push/status")
+def push_status(seed_id: str, request: Request) -> Response:
+    """The sending part of the seed page (polled by htmx while sending)."""
+    user = page_session(request)
+    seed = request.app.state.seeds.get(user.user_id, seed_id)
+    if seed is None or seed["mod_status"] != "ready":
+        return render(request, "_error.html", status_code=404, message="seed not found")
+    return render(request, "_push_status.html", **_push_context(request, user, seed))
 
 
 @router.get("/seeds/{seed_id}/mod/status")

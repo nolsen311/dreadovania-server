@@ -1,0 +1,50 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{# "Send to Switch" for a patched seed (ADR 0016). Polls while sending. #}
+<section id="push" class="card stack"
+  {% if push_job and push_job.status in ("queued", "running") %}hx-get="/seeds/{{ seed.id }}/push/status" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <h2>Send to Switch</h2>
+  {% set target = push_switch.name if push_switch else "your Switch" %}
+  {% if push_job and push_job.status in ("queued", "running") %}
+    <p><span class="badge pending">sending</span>
+      {{ "Waiting to start…" if push_job.status == "queued" else "Sending to " ~ target ~ "…" }}</p>
+    {% if push_job.progress %}<p class="progress mono">{{ push_job.progress }}</p>{% endif %}
+    <p class="muted">Keep ftpd open on the Switch until this finishes.</p>
+    <form hx-post="/jobs/{{ push_job.id }}/cancel"><button type="submit">Cancel</button></form>
+  {% else %}
+    {% if push_job and push_job.status == "succeeded" %}
+      <p class="ok">Sent to {{ target }}. Close ftpd and launch Dread with a new save file.</p>
+    {% elif push_job and push_job.status == "failed" %}
+      <p class="error">Sending failed: {{ push_job.error }}</p>
+    {% elif push_job and push_job.status == "cancelled" %}
+      <p class="muted">Sending was cancelled. The next send cleans up what was copied.</p>
+    {% endif %}
+    {% if switches %}
+      <ol class="muted">
+        <li>Open <strong>ftpd</strong> on your Switch.</li>
+        <li>Choose the Switch and press <strong>Send to Switch</strong>.</li>
+        <li>When it's done, close ftpd and launch Dread with a new save.</li>
+      </ol>
+      <form hx-post="/seeds/{{ seed.id }}/push" hx-target="#messages" class="stack">
+        <label>Switch
+          <select name="switch_id">
+            {% for s in switches %}
+              <option value="{{ s.id }}"{% if push_switch and push_switch.id == s.id %} selected{% endif %}>{{ s.name }} ({{ s.host }})</option>
+            {% endfor %}
+          </select>
+        </label>
+        <details>
+          <summary>Options</summary>
+          <div class="stack">
+            <label class="check"><input type="checkbox" name="overwrite"> Replace other mods' files if this seed needs them</label>
+            <label class="check"><input type="checkbox" name="clear"> Empty Dread's mod folder first (removes other Dread mods too)</label>
+          </div>
+        </details>
+        <button type="submit" class="primary">Send to Switch</button>
+      </form>
+      <p class="muted"><small>The previous seed's files are removed first. Other mods are
+        kept: if this seed would replace one of their files, sending stops and lists them.</small></p>
+    {% else %}
+      <p>Send seeds over Wi-Fi instead of copying files by hand: <a href="/switches">add your Switch</a> first.</p>
+    {% endif %}
+  {% endif %}
+</section>

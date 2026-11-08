@@ -2,10 +2,15 @@
 import asyncio
 import contextlib
 import json
-from collections.abc import AsyncIterator, Callable
+import threading
+import warnings
+from collections.abc import AsyncIterator, Callable, Iterator
 from pathlib import Path
 
 import pytest
+from pyftpdlib.authorizers import DummyAuthorizer
+from pyftpdlib.handlers import FTPHandler
+from pyftpdlib.servers import ThreadedFTPServer
 
 from dreadovania.db import Database, utc_now
 from dreadovania.jobs import JobQueue
@@ -149,3 +154,31 @@ async def wait_until(predicate: Callable[[], bool], timeout: float = 10) -> None
     async with asyncio.timeout(timeout):
         while not predicate():
             await asyncio.sleep(0.01)
+
+
+# ---- a stand-in Switch: a local FTP server serving a folder like an SD card ----
+
+
+@pytest.fixture
+def sd_card(tmp_path: Path) -> Path:
+    root = tmp_path / "sd"
+    (root / "atmosphere" / "contents").mkdir(parents=True)
+    return root
+
+
+@pytest.fixture
+def ftpd(sd_card: Path) -> Iterator[dict]:
+    """A local FTP server: anonymous, plus user "samus" with password "secret"."""
+    authorizer = DummyAuthorizer()
+    with warnings.catch_warnings():
+        # ftpd lets anyone write by default, so the stand-in does too.
+        warnings.simplefilter("ignore", RuntimeWarning)
+        authorizer.add_anonymous(str(sd_card), perm="elradfmwMT")
+    authorizer.add_user("samus", "secret", str(sd_card), perm="elradfmwMT")
+    handler = type("Handler", (FTPHandler,), {"authorizer": authorizer, "banner": "test ftpd"})
+    server = ThreadedFTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"timeout": 0.05}, daemon=True)
+    thread.start()
+    yield {"host": "127.0.0.1", "port": server.socket.getsockname()[1], "root": sd_card}
+    server.close_all()
+    thread.join(timeout=5)

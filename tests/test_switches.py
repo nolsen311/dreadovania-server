@@ -6,17 +6,12 @@ laid out like an SD card. No console is involved.
 """
 
 import socket
-import threading
-import warnings
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from conftest import make_user
 from fastapi.testclient import TestClient
-from pyftpdlib.authorizers import DummyAuthorizer
-from pyftpdlib.handlers import FTPHandler
-from pyftpdlib.servers import ThreadedFTPServer
 from test_api import ORIGIN, H
 
 from dreadovania import auth
@@ -31,31 +26,6 @@ from dreadovania.switches import (
     clean_fields,
     lan_address,
 )
-
-
-@pytest.fixture
-def sd_card(tmp_path: Path) -> Path:
-    root = tmp_path / "sd"
-    (root / "atmosphere" / "contents").mkdir(parents=True)
-    return root
-
-
-@pytest.fixture
-def ftpd(sd_card: Path) -> Iterator[dict]:
-    """A local FTP server: anonymous, plus user "samus" with password "secret"."""
-    authorizer = DummyAuthorizer()
-    with warnings.catch_warnings():
-        # ftpd lets anyone write by default, so the stand-in does too.
-        warnings.simplefilter("ignore", RuntimeWarning)
-        authorizer.add_anonymous(str(sd_card), perm="elradfmwMT")
-    authorizer.add_user("samus", "secret", str(sd_card), perm="elradfmwMT")
-    handler = type("Handler", (FTPHandler,), {"authorizer": authorizer, "banner": "test ftpd"})
-    server = ThreadedFTPServer(("127.0.0.1", 0), handler)
-    thread = threading.Thread(target=server.serve_forever, kwargs={"timeout": 0.05}, daemon=True)
-    thread.start()
-    yield {"host": "127.0.0.1", "port": server.socket.getsockname()[1], "root": sd_card}
-    server.close_all()
-    thread.join(timeout=5)
 
 
 def free_port() -> int:

@@ -44,7 +44,7 @@ class ModInfo:
     size_bytes: int
 
 
-def _walk_files(root: Path) -> Iterator[tuple[Path, os.stat_result]]:
+def walk_files(root: Path) -> Iterator[tuple[Path, os.stat_result]]:
     """Every file under root, sorted, without following symlinks.
 
     Anything other than a regular file or a directory is an error: the patcher
@@ -67,7 +67,7 @@ def inspect_mod(root: Path) -> ModInfo:
     if unexpected:
         raise ModError("the patcher produced unexpected files")
     count = size = 0
-    for _path, st in _walk_files(root):
+    for _path, st in walk_files(root):
         count += 1
         size += st.st_size
     if count == 0:
@@ -123,7 +123,7 @@ def iter_mod_zip(root: Path) -> Iterator[bytes]:
     """
     sink = _Sink()
     with zipfile.ZipFile(sink, "w", compression=zipfile.ZIP_STORED) as archive:  # type: ignore[arg-type]
-        for path, st in _walk_files(root):
+        for path, st in walk_files(root):
             info = zipfile.ZipInfo(
                 f"{ZIP_ROOT}/{path.relative_to(root).as_posix()}",
                 date_time=time.localtime(max(st.st_mtime, _ZIP_EPOCH))[:6],

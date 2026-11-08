@@ -32,9 +32,11 @@ _HOSTNAME = re.compile(
 
 # Columns the API may see: never the password itself.
 _PUBLIC = (
-    "id, name, host, port, username, password IS NOT NULL AS has_password,"
-    " last_test_at, last_test_ok, last_test_message, created_at, updated_at"
+    "s.id, s.name, s.host, s.port, s.username, s.password IS NOT NULL AS has_password,"
+    " s.last_test_at, s.last_test_ok, s.last_test_message, s.created_at, s.updated_at,"
+    " i.seed_id AS installed_seed_id, i.state AS install_state"
 )
+_FROM = "FROM switches s LEFT JOIN switch_installs i ON i.switch_id = s.id"
 
 Resolver = Callable[[str, int], list[str]]
 
@@ -139,7 +141,7 @@ class SwitchStore:
     def list(self, owner_id: str) -> list[dict[str, Any]]:
         with self.db.connect() as conn:
             rows = conn.execute(
-                f"SELECT {_PUBLIC} FROM switches WHERE owner_id = ? ORDER BY created_at, rowid",  # noqa: S608
+                f"SELECT {_PUBLIC} {_FROM} WHERE s.owner_id = ? ORDER BY s.created_at, s.rowid",
                 (owner_id,),
             ).fetchall()
         return [_public(r) for r in rows]
@@ -147,7 +149,7 @@ class SwitchStore:
     def get(self, owner_id: str, switch_id: str) -> dict[str, Any] | None:
         with self.db.connect() as conn:
             row = conn.execute(
-                f"SELECT {_PUBLIC} FROM switches WHERE id = ? AND owner_id = ?",  # noqa: S608
+                f"SELECT {_PUBLIC} {_FROM} WHERE s.id = ? AND s.owner_id = ?",
                 (switch_id, owner_id),
             ).fetchone()
         return _public(row) if row else None
