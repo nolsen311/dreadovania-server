@@ -117,6 +117,8 @@ async function run({ github, context, core }, options = {}) {
   }
   const number = payload.issue.number;
   const refuse = async (reason) => {
+    // In the run's summary first, so the reason is visible even if commenting fails.
+    core.warning(`Not released: ${reason}.`);
     await reply(github, context, number, `Not released: ${reason}.`);
     return { released: false, reason };
   };
