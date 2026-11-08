@@ -269,7 +269,8 @@ def test_a_conflict_is_reported_on_the_job(client: TestClient, ftpd: dict) -> No
     r = client.post(f"/api/v1/seeds/{seed_id}/push", json={"switch_id": switch_id}, headers=H)
     job = wait_for_job(client, r.json()["job_id"])
     assert job["status"] == "failed"
-    assert "belong to another mod" in job["error"]
+    assert "weren't installed by Dreadovania" in job["error"]
+    assert "Empty Dread's mod folder first" in job["error"]
     assert client.get(f"/api/v1/seeds/{seed_id}").json()["mod"]["status"] == "ready"  # unaffected
     body = {"switch_id": switch_id, "overwrite": True}
     r = client.post(f"/api/v1/seeds/{seed_id}/push", json=body, headers=H)
@@ -283,6 +284,25 @@ def test_ftpd_closed_fails_with_a_clear_message(client: TestClient) -> None:
     job = wait_for_job(client, r.json()["job_id"])
     assert job["status"] == "failed"
     assert "refused the connection" in job["error"]
+
+
+def test_blocked_file_transfers_point_at_the_firewall(
+    client: TestClient, ftpd_blocked: dict
+) -> None:
+    seed_id, switch_id = patched_seed(client), add_switch(client, ftpd_blocked)
+    r = client.post(f"/api/v1/seeds/{seed_id}/push", json={"switch_id": switch_id}, headers=H)
+    job = wait_for_job(client, r.json()["job_id"])
+    assert job["status"] == "failed"
+    assert "allow TCP from this server to the Switch on ports 1024-65535" in job["error"]
+
+
+def test_a_refused_step_is_reported_as_refused(client: TestClient, ftpd: dict) -> None:
+    (ftpd["root"] / "config").write_text("a file where the manifest's folder should be")
+    seed_id, switch_id = patched_seed(client), add_switch(client, ftpd)
+    r = client.post(f"/api/v1/seeds/{seed_id}/push", json={"switch_id": switch_id}, headers=H)
+    job = wait_for_job(client, r.json()["job_id"])
+    assert job["status"] == "failed"
+    assert job["error"].startswith("ftpd on the Switch refused part of the send (5")
 
 
 def test_what_can_be_sent(client: TestClient, ftpd: dict) -> None:

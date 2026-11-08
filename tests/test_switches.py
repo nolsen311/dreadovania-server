@@ -171,6 +171,14 @@ def test_a_card_without_atmosphere(ftpd: dict) -> None:
     assert "no /atmosphere folder" in result.message
 
 
+def test_blocked_file_transfers_fail_the_test(ftpd_blocked: dict) -> None:
+    # Logging in works, but a firewall blocks ftpd's file-transfer ports.
+    result = check_connection({"host": ftpd_blocked["host"], "port": ftpd_blocked["port"]})
+    assert not result.ok
+    assert result.message.startswith("Logged in to ftpd, but couldn't open a file transfer")
+    assert "ports 1024-65535" in result.message
+
+
 def test_ftpd_not_running() -> None:
     port = free_port()
     result = check_connection({"host": "127.0.0.1", "port": port})
