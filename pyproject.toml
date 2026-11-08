@@ -24,6 +24,7 @@ Source = "https://github.com/nolsen311/dreadovania-server"
 dev = [
     "httpx2>=2.16.0",
     "packaging>=26.3",
+    "pyftpdlib>=2.2.0",
     "pytest>=9.2.0",
     "ruff>=0.17.4",
 ]

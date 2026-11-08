@@ -30,6 +30,7 @@ from dreadovania.routes_auth import (
     public_origin,
 )
 from dreadovania.seeds import NoSpoiler, SeedBusy, SeedNotReady
+from dreadovania.switches import DEFAULT_PORT, SwitchError
 from dreadovania.validation import InvalidInput
 
 HERE = Path(__file__).parent
@@ -352,6 +353,46 @@ async def game_files_page(request: Request) -> Response:
         upload=uploads.current(),
         upload_blocked=await run_in_threadpool(uploads.unavailable_reason),
     )
+
+
+# ---- Switches (ADR 0016) -----------------------------------------------------------------------
+
+
+@router.get("/switches")
+def switches_page(request: Request) -> Response:
+    user = page_session(request)
+    return render(
+        request, "switches.html", user=user, switches=request.app.state.switches.list(user.user_id)
+    )
+
+
+@router.post("/switches")
+async def switch_add(request: Request) -> Response:
+    user = page_session(request)
+    form = await read_form(request)
+    fields = {key: form.get(key, "") for key in ("name", "host", "port", "username", "password")}
+    fields["port"] = fields["port"].strip() or str(DEFAULT_PORT)
+    try:
+        await run_in_threadpool(request.app.state.switches.create, user.user_id, fields)
+    except SwitchError as exc:
+        return render(request, "_error.html", message=str(exc))
+    return go(request, "/switches")
+
+
+@router.post("/switches/{switch_id}/test")
+async def switch_test(switch_id: str, request: Request) -> Response:
+    user = page_session(request)
+    result = await run_in_threadpool(request.app.state.switches.test, user.user_id, switch_id)
+    if result is None:
+        return render(request, "_error.html", status_code=404, message="Switch not found")
+    return render(request, "_switch_test.html", result=result)
+
+
+@router.post("/switches/{switch_id}/delete")
+def switch_delete(switch_id: str, request: Request) -> Response:
+    user = page_session(request)
+    request.app.state.switches.delete(user.user_id, switch_id)
+    return go(request, "/switches")
 
 
 # ---- presets ----------------------------------------------------------------------------------

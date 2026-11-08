@@ -19,6 +19,7 @@ from dreadovania.romfs import RomfsInspector
 from dreadovania.romfs_upload import RomfsUploads
 from dreadovania.runner import RandovaniaRunner, Runner
 from dreadovania.seeds import SeedStore
+from dreadovania.switches import SwitchStore
 
 API_PREFIX = routes_auth.API_PREFIX
 log = logging.getLogger(__name__)
@@ -73,6 +74,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.db, app.state.jobs = db, queue
     app.state.presets = PresetStore(db)
     app.state.seeds = SeedStore(db, settings.data_dir)
+    app.state.switches = SwitchStore(db)
     uploads = RomfsUploads(
         settings.data_dir,
         app.state.romfs,
