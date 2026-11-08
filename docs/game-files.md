@@ -98,12 +98,20 @@ can be patched too: patching never shows the spoiler.
 When it finishes, **Download for Switch (.zip)** and extract the zip at the root
 of your SD card. It contains an `atmosphere/` folder:
 
-- `atmosphere/contents/010093801237c000/` holds the patched game files, and
-- `atmosphere/exefs_patches/DreadRandovania/` holds the code patches.
+- `atmosphere/contents/010093801237c000/` holds the changed game files and a
+  small loader (`exefs/`), and
+- `atmosphere/exefs_patches/DreadRandovania/` may hold code patches.
 
-Installing a seed replaces whichever seed was installed before, so start a new
-save file for each seed. The patched files stay on the server, next to the seed,
-until you delete them (**Delete patched files**), delete the seed, or purge old
-seeds. Each patched seed takes a few hundred MB.
+**Before installing a new seed by hand, delete the previous seed's files**
+(`atmosphere/contents/010093801237c000/` and `atmosphere/exefs_patches/DreadRandovania/`).
+A seed contains only the files it changes, so extracting over an older seed can
+leave some of its files behind and mix the two. Start a new save file for each
+seed. Sending a seed to the Switch from the server (Phase 3, ADR 0016) does this
+cleanup for you.
+
+The patched files stay on the server, next to the seed, until you delete them
+(**Delete patched files**), delete the seed, or purge old seeds. A patched seed
+is typically tens of MB: the patcher writes only the assets the seed changes,
+which the loader reads ahead of the game's own packages.
 
 Patching is limited to `DREADOVANIA_EXPORT_TIMEOUT_SECONDS` (default 1800).

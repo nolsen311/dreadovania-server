@@ -36,7 +36,7 @@ Items marked **(verify)** are assumptions to confirm during the Phase 0 spike.
 | **0. Spike** | Confirm Randovania's CLI generates a Dread seed headless in a Debian-slim container. Confirm how Dread *export* can be triggered without the GUI. Check Qt headless needs. | No |
 | **1. Generate** ([ADR 0011](adr/0011-phase1-plan.md)) | Web UI, setup wizard and authentication, TLS support, the full CI/CD pipeline. | No |
 | **2. Patch** ([ADR 0013](adr/0013-phase2-patching.md)) | Dread RomFS goes in, a mod comes out, and you can download it as a zip. | Yes (user-supplied) |
-| **3. Send to Switch** | FTP push to `ftpd` into a SimpleModManager-compatible library, with a saved Switch. | Yes |
+| **3. Send to Switch** ([ADR 0016](adr/0016-phase3-send-to-switch.md)) | FTP push to `ftpd`, installed directly with clean replacement of the previous seed (other mods kept), with a saved Switch. | Yes |
 | **4. NRO** | `dreadovania-nx`: pair, generate, download and swap seeds on the Switch. | Yes |
 
 ## 1. Generating vs. patching
@@ -184,9 +184,18 @@ Resolved by Phase 0 (ADR 0010):
 - ~~Whether the Dread toolchain resolves for arm64~~: the lock resolves, but
   `py-tegra-swizzle` has no aarch64 wheel, so the arm64 image is blocked (options in ADR 0010).
 
+Resolved since:
+
+- ~~Supported Dread versions; whether ExeFS is needed~~: Randovania exports from
+  1.0.0 and 2.1.0, identified by `system/files.toc`, and needs only the RomFS
+  (ADR 0013); confirmed on the maintainer's own game files with v0.1.1.
+- ~~SimpleModManager's library layout~~: `/mods/<game>/<mod>/<tree under atmosphere/>`
+  (its README); it is GPLv3. Phase 3 installs directly instead (ADR 0016); its
+  code is a reference for Phase 4.
+
 Still open:
 
-1. Supported Dread versions and their hashes; whether ExeFS is needed. Needs real
-   game files, so it is verified by the maintainer in Phase 2.
-2. SimpleModManager's license, library layout, and how cleanly its core logic separates from its UI.
-3. How Dread save slots behave across different seeds.
+1. How cleanly SimpleModManager's core logic separates from its UI (Phase 4).
+2. How Dread save slots behave across different seeds. Randovania has a
+   "separate save slots" cosmetic option for Dread, to expose with the other
+   cosmetics (ADR 0016, "Later").
