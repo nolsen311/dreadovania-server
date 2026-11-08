@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     # The user's extracted RomFS (ADR 0013). Defaults to <data_dir>/romfs; usually a
     # read-only mount. Never served, listed or logged.
     romfs_dir: Path | None = None
+    # Uploading a RomFS zip from the web UI (ADR 0013 §1). Chunks must fit through
+    # any reverse proxy's request size limit (nginx defaults to 1 MB: raise it).
+    max_romfs_upload_bytes: int = Field(default=20 * 1024**3, gt=0)
+    max_romfs_files: int = Field(default=100_000, gt=0)
+    romfs_upload_chunk_bytes: int = Field(default=8 * 1024**2, ge=64 * 1024, le=100 * 1024**2)
 
     # The address users will type, e.g. https://dread.home.example.com.
     # Passkeys are bound to this origin (ADR 0004/0005). Set by the setup wizard later.

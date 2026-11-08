@@ -15,6 +15,37 @@ it, needs the files of your own copy of the game ([ADR 0013](adr/0013-phase2-pat
 
 ## Adding them
 
+There are two ways: upload a zip from the web UI, or mount a folder. Mounting is
+faster for a multi-GB RomFS if you can copy files to the server directly.
+
+### Uploading a zip
+
+On **Game files**, choose a zip of the RomFS and press **Upload and install**.
+`system/` and `packs/` can be at the top of the zip or inside one folder.
+
+- The upload is sent in chunks and can be resumed: if it stops (the phone sleeps,
+  the connection drops), choose the same file again and it continues where it left
+  off. Unfinished uploads are discarded after a week.
+- When it's complete, the server checks every entry (no paths outside the folder,
+  no links, size and file-count limits), extracts it, and checks the result
+  exactly like a mounted folder. Only a supported, unmodified RomFS replaces your
+  current game files.
+- It needs free space for the zip and the extracted files while it installs,
+  plus the old game files until the swap.
+- Windows' built-in "Compressed folder" uses Deflate64 for large files, which the
+  server can't read. Use 7-Zip (or any tool with standard Deflate, or no
+  compression).
+- Behind a reverse proxy, allow request bodies of at least the chunk size (8 MB by
+  default; nginx's default limit is 1 MB): for example `client_max_body_size 16m;`.
+  Or lower the chunk size with `DREADOVANIA_ROMFS_UPLOAD_CHUNK_BYTES`.
+- Limits: `DREADOVANIA_MAX_ROMFS_UPLOAD_BYTES` (default 20 GiB) and
+  `DREADOVANIA_MAX_ROMFS_FILES` (default 100,000).
+
+Uploading is turned off while the game files folder is a mount: replace the files
+on the host instead.
+
+### Mounting a folder
+
 Copy the RomFS folder to the machine running the server, then mount it at
 `/data/romfs` (read-only is fine and recommended). `system/` and `packs/` must be
 directly inside the mounted folder.

@@ -182,8 +182,10 @@ def test_api_reports_status_and_follows_changes(client: TestClient, romfs_dir: P
     assert (body["state"], body["ready"], body["version"]) == ("ready", True, "2.1.0")
     assert body["file_count"] == len(REQUIRED_FILES)
     assert set(body) == {
-        "state", "ready", "message", "version", "supported_versions", "file_count", "total_bytes"
+        "state", "ready", "message", "version", "supported_versions", "file_count", "total_bytes",
+        "upload_allowed", "upload_blocked_reason",
     }  # fmt: skip
+    assert (body["upload_allowed"], body["upload_blocked_reason"]) == (True, None)
 
 
 def test_api_needs_a_session(client: TestClient) -> None:

@@ -8,6 +8,7 @@ lookup is owner-scoped: someone else's preset, seed or job reads as 404.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from dataclasses import asdict
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Request, Response, status
@@ -19,6 +20,13 @@ from dreadovania.jobs import JobQueue, QueueFull
 from dreadovania.presets import MAX_PRESET_BYTES, PresetInfo, PresetStore
 from dreadovania.problems import ApiProblem
 from dreadovania.romfs import SUPPORTED_VERSIONS, RomfsStatus, State
+from dreadovania.romfs_upload import (
+    OffsetMismatch,
+    RomfsUploads,
+    UploadError,
+    UploadNotFound,
+    UploadStatus,
+)
 from dreadovania.routes_auth import API_PREFIX, CurrentUser, require_user
 from dreadovania.seeds import NoSpoiler, SeedBusy, SeedNotReady, SeedStore, is_uuid
 from dreadovania.validation import InvalidInput
@@ -149,10 +157,16 @@ class RomfsOut(BaseModel):
     supported_versions: list[str]
     file_count: int | None
     total_bytes: int | None
+    upload_allowed: bool
+    upload_blocked_reason: str | None = Field(
+        description="Why game files can't be uploaded here (for example, the folder is a mount)."
+    )
 
     @classmethod
-    def of(cls, s: RomfsStatus) -> RomfsOut:
+    def of(cls, s: RomfsStatus, blocked: str | None) -> RomfsOut:
         return cls(
+            upload_allowed=blocked is None,
+            upload_blocked_reason=blocked,
             state=s.state,
             ready=s.ready,
             message=s.message,
@@ -169,7 +183,140 @@ class RomfsOut(BaseModel):
 @router.get("/romfs", tags=["game files"])
 async def get_romfs(request: Request, user: CurrentUser) -> RomfsOut:
     """Whether the server has usable game files (an extracted RomFS), and which version."""
-    return RomfsOut.of(await run_in_threadpool(request.app.state.romfs.status))
+    status = await run_in_threadpool(request.app.state.romfs.status)
+    return RomfsOut.of(status, await run_in_threadpool(_uploads(request).unavailable_reason))
+
+
+# ---- uploading game files (ADR 0013 §1) -------------------------------------------------------
+
+
+class UploadStart(BaseModel):
+    size: int = Field(gt=0, description="The zip's size in bytes.")
+    fingerprint: str = Field(
+        min_length=1,
+        max_length=512,
+        description="Identifies the file so an interrupted upload can be resumed "
+        "(for example its name, size and modification time). Stored only as a hash.",
+    )
+
+
+class UploadOut(BaseModel):
+    id: str
+    state: Literal["receiving", "received", "installing", "failed", "installed"]
+    size: int
+    offset: int = Field(description="Bytes received so far: send the next chunk from here.")
+    chunk_size: int = Field(description="The largest chunk the server accepts.")
+    message: str | None
+    installed_bytes: int
+    total_bytes: int | None
+
+    @classmethod
+    def of(cls, s: UploadStatus) -> UploadOut:
+        return cls(**asdict(s))
+
+
+def _uploads(request: Request) -> RomfsUploads:
+    return request.app.state.romfs_uploads
+
+
+def _upload_problem(exc: UploadError) -> ApiProblem:
+    if isinstance(exc, UploadNotFound):
+        return _not_found("Upload")
+    if isinstance(exc, OffsetMismatch):
+        return ApiProblem(
+            409, "Wrong offset", str(exc), {"Upload-Offset": str(exc.expected)},
+            offset=exc.expected,
+        )  # fmt: skip
+    return ApiProblem(409, "Upload refused", str(exc))
+
+
+@router.get("/romfs/upload", tags=["game files"])
+def get_upload(request: Request, user: CurrentUser) -> UploadOut:
+    """The current (or last) game files upload."""
+    current = _uploads(request).current()
+    if current is None:
+        raise _not_found("Upload")
+    return UploadOut.of(current)
+
+
+@router.post(
+    "/romfs/upload",
+    tags=["game files"],
+    status_code=status.HTTP_201_CREATED,
+    responses={200: {"model": UploadOut, "description": "Resuming the same file."}},
+)
+async def start_upload(
+    body: UploadStart, request: Request, response: Response, user: CurrentUser
+) -> UploadOut:
+    """Start uploading a zip of an extracted RomFS, or resume the same file.
+
+    Then send it in chunks with `PATCH`, and install it with `POST …/install`.
+    """
+    try:
+        upload, created = await _uploads(request).start(body.size, body.fingerprint)
+    except UploadError as exc:
+        raise _upload_problem(exc) from None
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return UploadOut.of(upload)
+
+
+@router.patch(
+    "/romfs/upload/{upload_id}",
+    tags=["game files"],
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {"application/offset+octet-stream": {"schema": {"type": "string",
+                                                                       "format": "binary"}}},
+        },
+        "parameters": [{"name": "Upload-Offset", "in": "header", "required": True,
+                        "schema": {"type": "integer", "minimum": 0},
+                        "description": "Where this chunk starts: the upload's current offset."}],
+    },
+)  # fmt: skip
+async def upload_chunk(upload_id: str, request: Request, user: CurrentUser) -> UploadOut:
+    """Append one chunk (at most `chunk_size` bytes) at `Upload-Offset`.
+
+    A 409 with `offset` means the server has a different amount: continue from there.
+    """
+    raw_offset = request.headers.get("upload-offset", "")
+    if not raw_offset.isdigit():
+        raise ApiProblem(400, "Upload-Offset required", "send the chunk's starting byte")
+    try:
+        upload = await _uploads(request).write(upload_id, int(raw_offset), request.stream())
+    except UploadError as exc:
+        raise _upload_problem(exc) from None
+    return UploadOut.of(upload)
+
+
+@router.post(
+    "/romfs/upload/{upload_id}/install",
+    tags=["game files"],
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def install_upload(upload_id: str, request: Request, user: CurrentUser) -> UploadOut:
+    """Check, extract and validate the uploaded zip, then replace the game files with it.
+
+    Runs in the background: follow it with `GET /romfs/upload`. The current game
+    files are only replaced if the new ones are a supported, unmodified RomFS.
+    """
+    try:
+        upload = await _uploads(request).install(upload_id)
+    except UploadError as exc:
+        raise _upload_problem(exc) from None
+    return UploadOut.of(upload)
+
+
+@router.delete(
+    "/romfs/upload/{upload_id}", tags=["game files"], status_code=status.HTTP_204_NO_CONTENT
+)
+async def discard_upload(upload_id: str, request: Request, user: CurrentUser) -> None:
+    """Discard an upload and the data received so far."""
+    try:
+        await _uploads(request).discard(upload_id)
+    except UploadError as exc:
+        raise _upload_problem(exc) from None
 
 
 # ---- presets ------------------------------------------------------------------------------

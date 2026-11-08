@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
@@ -16,15 +18,23 @@ class ApiProblem(Exception):
         title: str,
         detail: str | None = None,
         headers: dict[str, str] | None = None,
+        **extensions: Any,
     ):
         super().__init__(detail or title)
         self.status, self.title, self.detail, self.headers = status, title, detail, headers or {}
+        # RFC 9457 extension members, e.g. the offset an upload should continue from.
+        self.extensions = extensions
 
 
 def install(app: FastAPI) -> None:
     @app.exception_handler(ApiProblem)
     async def _problem(_: Request, exc: ApiProblem) -> JSONResponse:
-        body = {"type": "about:blank", "title": exc.title, "status": exc.status}
+        body: dict[str, Any] = {
+            **exc.extensions,
+            "type": "about:blank",
+            "title": exc.title,
+            "status": exc.status,
+        }
         if exc.detail:
             body["detail"] = exc.detail
         return JSONResponse(
