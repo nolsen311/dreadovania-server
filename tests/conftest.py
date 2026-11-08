@@ -41,8 +41,9 @@ def fake_rdvgame(race: bool) -> dict:
         "item_order": [],
         "game_modifications": [
             {
-                "starting_location": {"region": "Artaria", "area": "Intro Room"},
-                "starting_equipment": {"pickups": ["Power Beam"]},
+                # Shapes copied from real Randovania 12.0.0 output.
+                "starting_location": "Artaria/Intro Room/Start Point",
+                "starting_equipment": {"pickups": ["Missiles", "Pulse Radar"]},
                 "locations": [
                     {
                         "node_identifier": {

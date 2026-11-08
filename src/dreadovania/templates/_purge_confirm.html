@@ -1,0 +1,11 @@
+{% if count == 0 %}
+<p class="muted">Nothing to delete.</p>
+{% else %}
+<form hx-post="/seeds/purge" class="stack confirm">
+  <p><strong>Delete {{ count }} seed{{ "s" if count != 1 }}{% if days %} older than {{ days }} days{% endif %}?</strong> This can't be undone. Seeds still generating are kept.</p>
+  <input type="hidden" name="scope" value="{{ 'all' if days is none else 'older_than' }}">
+  {% if days %}<input type="hidden" name="days" value="{{ days }}">{% endif %}
+  <input type="hidden" name="confirm" value="yes">
+  <button type="submit" class="danger">Delete {{ count }} seed{{ "s" if count != 1 }}</button>
+</form>
+{% endif %}

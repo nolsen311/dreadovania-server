@@ -486,16 +486,27 @@
             "title": "Locations",
             "type": "array"
           },
-          "starting_equipment": {
-            "title": "Starting Equipment"
+          "starting_items": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Starting Items",
+            "type": "array"
           },
           "starting_location": {
-            "title": "Starting Location"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StartingLocation"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
           "starting_location",
-          "starting_equipment",
+          "starting_items",
           "locations"
         ],
         "title": "Spoiler",
@@ -527,6 +538,29 @@
           "pickup"
         ],
         "title": "SpoilerLocation",
+        "type": "object"
+      },
+      "StartingLocation": {
+        "properties": {
+          "area": {
+            "title": "Area",
+            "type": "string"
+          },
+          "node": {
+            "title": "Node",
+            "type": "string"
+          },
+          "region": {
+            "title": "Region",
+            "type": "string"
+          }
+        },
+        "required": [
+          "region",
+          "area",
+          "node"
+        ],
+        "title": "StartingLocation",
         "type": "object"
       },
       "Submitted": {

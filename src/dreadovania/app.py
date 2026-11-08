@@ -10,7 +10,7 @@ from importlib.metadata import version
 from fastapi import FastAPI, Request, Response
 from pydantic import BaseModel
 
-from dreadovania import __version__, auth, problems, routes_api, routes_auth
+from dreadovania import __version__, auth, problems, routes_api, routes_auth, ui
 from dreadovania.config import Settings
 from dreadovania.db import Database
 from dreadovania.jobs import JobQueue
@@ -112,6 +112,7 @@ def create_app(settings: Settings | None = None, runner: Runner | None = None) -
     app.include_router(routes_auth.public)
     app.include_router(routes_auth.protected)
     app.include_router(routes_api.router)
+    ui.install(app)
 
     @app.middleware("http")
     async def security_headers(

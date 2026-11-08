@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>New seed</h1>
+<form method="post" action="/seeds" hx-post="/seeds" hx-target="#messages" class="card stack" id="generate">
+  <fieldset class="segmented">
+    <legend class="visually-hidden">Start from</legend>
+    <label><input type="radio" name="source" value="preset" checked> Preset</label>
+    <label><input type="radio" name="source" value="permalink"> Permalink</label>
+  </fieldset>
+  <div data-source="preset" class="stack">
+    <label>Preset
+      <select name="preset_id">
+        {% for p in presets %}<option value="{{ p.id }}">{{ p.name }}{% if not p.builtin %} (imported){% endif %}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Seed number <small>(optional; random if empty)</small>
+      <input name="seed_number" inputmode="numeric" pattern="[0-9]*" maxlength="10" autocomplete="off">
+    </label>
+    <label class="check"><input type="checkbox" name="race"> Race seed (no spoiler at all)</label>
+  </div>
+  <div data-source="permalink" class="stack" hidden>
+    <label>Permalink
+      <input name="permalink" maxlength="4096" autocapitalize="none" spellcheck="false" autocomplete="off">
+    </label>
+  </div>
+  <button type="submit" class="primary">Generate</button>
+</form>
+
+<h2>Recent seeds</h2>
+{% if seeds %}
+<ul class="seeds">
+  {% for s in seeds %}
+  <li>
+    <a href="/seeds/{{ s.id }}">
+      <span class="badge {{ s.status }}">{{ s.status }}</span>
+      <strong>{{ s.preset_name or "Permalink" }}</strong>
+      {% if s.race %}<span class="badge race">race</span>{% endif %}
+      <small>{{ s.seed_hash or "" }} · {{ s.created_at[:16] | replace("T", " ") }} UTC</small>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="muted">No seeds yet.</p>
+{% endif %}
+
+<details class="card">
+  <summary>Clean up seeds</summary>
+  <form hx-post="/seeds/purge/preview" hx-target="#purge-confirm" class="stack">
+    <label class="check"><input type="radio" name="scope" value="older_than" checked> Older than
+      <input name="days" type="number" min="1" max="3650" value="30" inputmode="numeric" class="short"> days</label>
+    <label class="check"><input type="radio" name="scope" value="all"> All seeds</label>
+    <button type="submit">Check what would be deleted</button>
+  </form>
+  <div id="purge-confirm"></div>
+</details>
+{% endblock %}

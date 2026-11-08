@@ -140,6 +140,10 @@ def test_generate_download_and_reveal_spoiler(client) -> None:
     assert "dreadovania-HASH1234.rdvgame" in download.headers["content-disposition"]
 
     spoiler = client.get(f"/api/v1/seeds/{sub['seed_id']}/spoiler").json()
+    assert spoiler["starting_location"] == {
+        "region": "Artaria", "area": "Intro Room", "node": "Start Point"
+    }  # fmt: skip
+    assert spoiler["starting_items"] == ["Missiles", "Pulse Radar"]
     assert spoiler["locations"] == [{
         "region": "Artaria", "area": "Arbitrary Enky Room",
         "location": "Pickup (Missile Tank)", "pickup": "Power Bomb Tank",
@@ -339,3 +343,8 @@ def test_real_randovania_end_to_end_over_http(tmp_path: Path) -> None:
         assert client.get(f"/api/v1/seeds/{sub['seed_id']}/rdvgame").json()["info"]["has_spoiler"]
         spoiler = client.get(f"/api/v1/seeds/{sub['seed_id']}/spoiler").json()
         assert len(spoiler["locations"]) > 100  # a real Dread seed places every pickup
+        # The real file's formats are parsed, not just passed through.
+        assert set(spoiler["starting_location"]) == {"region", "area", "node"}
+        assert spoiler["starting_items"] and all(
+            isinstance(i, str) for i in spoiler["starting_items"]
+        )

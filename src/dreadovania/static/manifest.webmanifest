@@ -1,0 +1,11 @@
+{
+  "name": "Dreadovania",
+  "short_name": "Dreadovania",
+  "description": "Generate randomizer seeds on your own server.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#101826",
+  "theme_color": "#101826",
+  "icons": [{ "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

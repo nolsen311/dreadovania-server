@@ -1,0 +1,13 @@
+<section class="card stack spoiler">
+  <h2>Spoiler</h2>
+  {% if spoiler.starting_location %}<p><strong>Start:</strong> {{ spoiler.starting_location.region }} – {{ spoiler.starting_location.area }}</p>{% endif %}
+  {% if spoiler.starting_items %}<p><strong>Starting items:</strong> {{ spoiler.starting_items | join(", ") }}</p>{% endif %}
+  {% for region, locations in regions | dictsort %}
+  <details>
+    <summary>{{ region }} <small>({{ locations | length }})</small></summary>
+    <ul>
+      {% for loc in locations %}<li><strong>{{ loc.pickup }}</strong> <small>{{ loc.area }} · {{ loc.location }}</small></li>{% endfor %}
+    </ul>
+  </details>
+  {% endfor %}
+</section>

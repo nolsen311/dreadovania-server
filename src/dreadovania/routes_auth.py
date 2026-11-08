@@ -138,9 +138,13 @@ def get_setup_status(request: Request) -> SetupStatus:
     return SetupStatus(setup_required=auth.setup_required(_db(request)))
 
 
-@public.post("/setup", status_code=status.HTTP_201_CREATED)
-def complete_setup(body: SetupRequest, request: Request, response: Response) -> SignedIn:
-    """Create the first account with the one-time setup token from the server log."""
+def perform_setup(
+    request: Request, response: Response, token: str, username: str, password: str, public_url: str
+) -> str:
+    """The whole setup flow, shared by the API and the web UI. Returns the username.
+
+    Raises ApiProblem; on success the session cookie is set on ``response``.
+    """
     limiter: auth.AttemptLimiter = request.app.state.setup_limiter
     client = _client(request)
     try:
@@ -150,7 +154,7 @@ def complete_setup(body: SetupRequest, request: Request, response: Response) -> 
     limiter.record(client)
 
     try:
-        submitted_origin = auth.origin_of(body.public_url)
+        submitted_origin = auth.origin_of(public_url)
     except auth.AuthError as exc:
         raise ApiProblem(400, "Invalid public URL", str(exc)) from None
     # The browser doing setup must actually be at the URL being saved.
@@ -158,7 +162,7 @@ def complete_setup(body: SetupRequest, request: Request, response: Response) -> 
 
     db = _db(request)
     try:
-        user_id = auth.complete_setup(db, body.token, body.username, body.password, body.public_url)
+        user_id = auth.complete_setup(db, token, username, password, public_url)
     except auth.SetupAlreadyDone as exc:
         raise ApiProblem(409, "Setup already completed", str(exc)) from None
     except auth.InvalidSetupToken as exc:
@@ -167,11 +171,14 @@ def complete_setup(body: SetupRequest, request: Request, response: Response) -> 
         raise ApiProblem(400, "Invalid setup details", str(exc)) from None
 
     _set_session_cookie(response, auth.create_session(db, user_id), public_origin(request))
-    return SignedIn(username=body.username)
+    return username
 
 
-@public.post("/auth/login")
-def login(body: LoginRequest, request: Request, response: Response) -> SignedIn:
+def perform_login(request: Request, response: Response, username: str, password: str) -> str:
+    """The whole sign-in flow, shared by the API and the web UI. Returns the username.
+
+    Raises ApiProblem; on success the session cookie is set on ``response``.
+    """
     db = _db(request)
     if auth.setup_required(db):
         raise ApiProblem(503, "Setup required", "finish first-run setup before signing in")
@@ -185,15 +192,36 @@ def login(body: LoginRequest, request: Request, response: Response) -> SignedIn:
     except auth.RateLimited as exc:
         raise _rate_limited(exc) from None
     try:
-        user_id = auth.authenticate(db, body.username, body.password)
+        user_id = auth.authenticate(db, username[:64], password[: auth.MAX_PASSWORD_LENGTH])
     except auth.AuthError as exc:
         limiter.record(client)
         raise ApiProblem(401, "Sign-in failed", str(exc)) from None
 
     _set_session_cookie(response, auth.create_session(db, user_id), origin)
     with db.connect() as conn:
-        username = conn.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()[0]
-    return SignedIn(username=username)
+        return conn.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()[0]
+
+
+def perform_logout(request: Request, response: Response) -> None:
+    token = request.cookies.get(COOKIE)
+    if token:
+        auth.delete_session(_db(request), token)
+    response.delete_cookie(COOKIE, path="/", httponly=True, samesite="lax")
+
+
+@public.post("/setup", status_code=status.HTTP_201_CREATED)
+def complete_setup(body: SetupRequest, request: Request, response: Response) -> SignedIn:
+    """Create the first account with the one-time setup token from the server log."""
+    return SignedIn(
+        username=perform_setup(
+            request, response, body.token, body.username, body.password, body.public_url
+        )
+    )
+
+
+@public.post("/auth/login")
+def login(body: LoginRequest, request: Request, response: Response) -> SignedIn:
+    return SignedIn(username=perform_login(request, response, body.username, body.password))
 
 
 @protected.get("/auth/session", tags=["sign-in"])
@@ -204,7 +232,4 @@ def current_session(user: CurrentUser) -> SignedIn:
 
 @protected.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT, tags=["sign-in"])
 def logout(request: Request, response: Response) -> None:
-    token = request.cookies.get(COOKIE)
-    if token:
-        auth.delete_session(_db(request), token)
-    response.delete_cookie(COOKIE, path="/", httponly=True, samesite="lax")
+    perform_logout(request, response)
