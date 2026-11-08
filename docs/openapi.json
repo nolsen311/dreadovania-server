@@ -871,7 +871,7 @@
             "type": "string"
           },
           "size": {
-            "description": "The zip's size in bytes.",
+            "description": "The archive's size in bytes.",
             "exclusiveMinimum": 0.0,
             "title": "Size",
             "type": "integer"
@@ -1311,7 +1311,7 @@
         ]
       },
       "post": {
-        "description": "Start uploading a zip of an extracted RomFS, or resume the same file.\n\nThen send it in chunks with `PATCH`, and install it with `POST \u2026/install`.",
+        "description": "Start uploading an archive (zip or tar) of an extracted RomFS, or resume the same file.\n\nThen send it in chunks with `PATCH`, and install it with `POST \u2026/install`.",
         "operationId": "start_upload_api_v1_romfs_upload_post",
         "requestBody": {
           "content": {
@@ -1461,7 +1461,7 @@
     },
     "/api/v1/romfs/upload/{upload_id}/install": {
       "post": {
-        "description": "Check, extract and validate the uploaded zip, then replace the game files with it.\n\nRuns in the background: follow it with `GET /romfs/upload`. The current game\nfiles are only replaced if the new ones are a supported, unmodified RomFS.",
+        "description": "Check, extract and validate the uploaded archive, then replace the game files with it.\n\nRuns in the background: follow it with `GET /romfs/upload`. The current game\nfiles are only replaced if the new ones are a supported, unmodified RomFS.",
         "operationId": "install_upload_api_v1_romfs_upload__upload_id__install_post",
         "parameters": [
           {

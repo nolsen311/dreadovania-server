@@ -15,13 +15,17 @@ it, needs the files of your own copy of the game ([ADR 0013](adr/0013-phase2-pat
 
 ## Adding them
 
-There are two ways: upload a zip from the web UI, or mount a folder. Mounting is
+There are two ways: upload an archive from the web UI, or mount a folder. Mounting is
 faster for a multi-GB RomFS if you can copy files to the server directly.
 
-### Uploading a zip
+### Uploading an archive
 
-On **Game files**, choose a zip of the RomFS and press **Upload and install**.
-`system/` and `packs/` can be at the top of the zip or inside one folder.
+On **Game files**, choose an archive of the RomFS and press **Upload and install**.
+It can be a `.zip`, or a `.tar`, `.tar.gz`, `.tar.bz2` or `.tar.xz` (for example
+`tar -czf romfs.tar.gz -C /path/to/romfs .`). The format is recognised from the
+file's content. `system/` and `packs/` can be at the top of the archive or inside
+one folder. 7z and RAR aren't supported: 7z would need extra third-party code, and
+RAR's decoder isn't free software.
 
 - The upload is sent in chunks and can be resumed: if it stops (the phone sleeps,
   the connection drops), choose the same file again and it continues where it left
@@ -30,11 +34,13 @@ On **Game files**, choose a zip of the RomFS and press **Upload and install**.
   no links, size and file-count limits), extracts it, and checks the result
   exactly like a mounted folder. Only a supported, unmodified RomFS replaces your
   current game files.
-- It needs free space for the zip and the extracted files while it installs,
+- It needs free space for the archive and the extracted files while it installs,
   plus the old game files until the swap.
 - Windows' built-in "Compressed folder" uses Deflate64 for large files, which the
-  server can't read. Use 7-Zip (or any tool with standard Deflate, or no
-  compression).
+  server can't read. Use 7-Zip with standard Deflate, or Windows' own `tar`
+  (Windows 10 and later): `tar -czf romfs.tar.gz -C C:\path\to\romfs .`
+- Patching and installing never overlap: an install isn't started while a seed is
+  being patched, and a patch doesn't start while new game files are installed.
 - Behind a reverse proxy, allow request bodies of at least the chunk size (8 MB by
   default; nginx's default limit is 1 MB): for example `client_max_body_size 16m;`.
   Or lower the chunk size with `DREADOVANIA_ROMFS_UPLOAD_CHUNK_BYTES`.

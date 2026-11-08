@@ -217,7 +217,7 @@ async def get_romfs(request: Request, user: CurrentUser) -> RomfsOut:
 
 
 class UploadStart(BaseModel):
-    size: int = Field(gt=0, description="The zip's size in bytes.")
+    size: int = Field(gt=0, description="The archive's size in bytes.")
     fingerprint: str = Field(
         min_length=1,
         max_length=512,
@@ -274,7 +274,7 @@ def get_upload(request: Request, user: CurrentUser) -> UploadOut:
 async def start_upload(
     body: UploadStart, request: Request, response: Response, user: CurrentUser
 ) -> UploadOut:
-    """Start uploading a zip of an extracted RomFS, or resume the same file.
+    """Start uploading an archive (zip or tar) of an extracted RomFS, or resume the same file.
 
     Then send it in chunks with `PATCH`, and install it with `POST …/install`.
     """
@@ -322,7 +322,7 @@ async def upload_chunk(upload_id: str, request: Request, user: CurrentUser) -> U
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def install_upload(upload_id: str, request: Request, user: CurrentUser) -> UploadOut:
-    """Check, extract and validate the uploaded zip, then replace the game files with it.
+    """Check, extract and validate the uploaded archive, then replace the game files with it.
 
     Runs in the background: follow it with `GET /romfs/upload`. The current game
     files are only replaced if the new ones are a supported, unmodified RomFS.

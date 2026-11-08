@@ -5,10 +5,12 @@ Every zip here is synthetic: a few small files laid out like a RomFS, with
 version detection injected. No game data is used.
 """
 
+import dataclasses
 import io
 import json
 import os
 import stat
+import tarfile
 import time
 import zipfile
 from collections.abc import AsyncIterator, Iterator
@@ -16,7 +18,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from test_api import ORIGIN, H
+from test_api import ORIGIN, H, wait_for_job
 from test_romfs import fake_identify
 
 from dreadovania import auth
@@ -24,11 +26,14 @@ from dreadovania.app import create_app
 from dreadovania.config import Settings
 from dreadovania.romfs import REQUIRED_FILES, TOC, RomfsInspector
 from dreadovania.romfs_upload import (
+    Entry,
     OffsetMismatch,
     RomfsUploads,
     UploadError,
     UploadNotFound,
+    _zip_entry,
     extract,
+    open_archive,
     plan_extraction,
 )
 
@@ -51,6 +56,30 @@ def romfs_zip(
             archive.writestr(prefix + "packs/filler.bin", os.urandom(filler))
         for name, data in (extra or {}).items():
             archive.writestr(name, data)
+    return buffer.getvalue()
+
+
+def _tar_info(name: str, kind: bytes, linkname: str = "", size: int = 0) -> tarfile.TarInfo:
+    info = tarfile.TarInfo(name)
+    info.type, info.linkname, info.size = kind, linkname, size
+    return info
+
+
+def romfs_tar(
+    mode: str, prefix: str = "", filler: int = 0, extra: list[tarfile.TarInfo] | None = None
+) -> bytes:
+    """A tar (optionally compressed) of a synthetic RomFS, like ``tar -czf``."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode=mode) as archive:
+        files = {name: (b"toc-2.1.0" if name == TOC else b"x" * 10) for name in REQUIRED_FILES}
+        if filler:
+            files["packs/filler.bin"] = os.urandom(filler)
+        for name, data in files.items():
+            archive.addfile(
+                _tar_info(prefix + name, tarfile.REGTYPE, size=len(data)), io.BytesIO(data)
+            )
+        for info in extra or []:
+            archive.addfile(info)
     return buffer.getvalue()
 
 
@@ -103,7 +132,7 @@ async def test_upload_and_install(uploads: RomfsUploads, data_dir: Path) -> None
     assert (result.state, result.message) == ("installed", "Installed: Dread 2.1.0.")
     status = uploads.romfs.status()
     assert (status.ready, status.version) == (True, "2.1.0")
-    assert not (uploads.dir / "romfs.zip").exists()  # the zip is removed afterwards
+    assert not (uploads.dir / "upload.archive").exists()  # the zip is removed afterwards
     assert not (uploads.dir / "staging").exists()
 
 
@@ -133,11 +162,31 @@ async def test_an_invalid_romfs_never_replaces_the_current_one(uploads, data_dir
     assert uploads.romfs.status().version == "2.1.0"  # still the previous game files
 
 
-async def test_a_file_that_isnt_a_zip_fails_cleanly(uploads: RomfsUploads) -> None:
-    result = await install(uploads, await upload_all(uploads, b"not a zip at all" * 100))
+async def test_a_file_that_isnt_an_archive_fails_cleanly(uploads: RomfsUploads) -> None:
+    result = await install(uploads, await upload_all(uploads, b"not an archive" * 100))
     assert result.state == "failed"
-    assert "isn't a valid zip" in result.message
+    assert "isn't a zip or tar archive" in result.message
     assert not (uploads.romfs.root).exists()
+
+
+@pytest.mark.parametrize("kind", ["zip", "tar.gz"])
+async def test_a_damaged_archive_fails_cleanly(uploads: RomfsUploads, kind: str) -> None:
+    whole = romfs_zip(filler=50_000) if kind == "zip" else romfs_tar("w:gz", filler=50_000)
+    result = await install(uploads, await upload_all(uploads, whole[: len(whole) * 2 // 3]))
+    assert result.state == "failed"
+    assert "damaged" in result.message
+    assert not (uploads.romfs.root).exists()
+    assert not (uploads.dir / "staging").exists()
+
+
+@pytest.mark.parametrize(
+    ("mode", "prefix"),
+    [("w", "./"), ("w:gz", ""), ("w:bz2", "romfs/"), ("w:xz", "dump/romfs/")],
+)
+async def test_tar_archives_install(uploads: RomfsUploads, data_dir, mode, prefix) -> None:
+    result = await install(uploads, await upload_all(uploads, romfs_tar(mode, prefix, 20_000)))
+    assert (result.state, result.message) == ("installed", "Installed: Dread 2.1.0."), result
+    assert (data_dir / "romfs" / TOC).is_file()
 
 
 # ---- resuming and the chunk protocol ---------------------------------------------------------
@@ -214,7 +263,7 @@ async def test_uploads_are_refused_when_the_folder_is_mounted(uploads, monkeypat
 
 def test_recovery_after_a_restart(uploads: RomfsUploads) -> None:
     uploads.dir.mkdir(parents=True)
-    (uploads.dir / "romfs.zip").write_bytes(b"x" * 10)
+    (uploads.dir / "upload.archive").write_bytes(b"x" * 10)
     (uploads.dir / "staging").mkdir()
     meta = {"id": "a" * 32, "size": 10, "fingerprint": "h", "state": "installing",
             "message": None, "updated_at": time.time()}  # fmt: skip
@@ -231,11 +280,20 @@ def test_recovery_after_a_restart(uploads: RomfsUploads) -> None:
     assert uploads.current() is None
 
 
-# ---- what a zip may contain ------------------------------------------------------------------
+# ---- what an archive may contain --------------------------------------------------------------
+
+
+def zip_entries(archive: zipfile.ZipFile) -> list[Entry]:
+    return [_zip_entry(archive, info) for info in archive.infolist()]
 
 
 def plan(data: bytes, max_files: int = 100, max_bytes: int = 10**7):
-    return plan_extraction(zipfile.ZipFile(io.BytesIO(data)), max_files, max_bytes)
+    return plan_extraction(zip_entries(zipfile.ZipFile(io.BytesIO(data))), max_files, max_bytes)
+
+
+def plan_file(path: Path):
+    with open_archive(path) as entries:
+        return plan_extraction(entries, 100, 10**7)
 
 
 @pytest.mark.parametrize(
@@ -254,7 +312,7 @@ def test_unsafe_paths_are_refused(extra, message) -> None:
 
 def test_backslash_paths_are_normalised_and_checked() -> None:
     entries, _ = plan(romfs_zip(extra={"packs\\sub\\file.bin": b"x"}))
-    assert ("packs", "sub", "file.bin") in [parts for _info, parts in entries]
+    assert ("packs", "sub", "file.bin") in [parts for _entry, parts in entries]
     with pytest.raises(UploadError, match="unsafe path"):
         plan(romfs_zip(extra={"..\\escape": b"x"}))
 
@@ -265,20 +323,38 @@ def test_symlinks_and_encryption_are_refused() -> None:
         link = zipfile.ZipInfo("packs/link")
         link.external_attr = (stat.S_IFLNK | 0o777) << 16
         archive.writestr(link, "/etc/passwd")
-    with pytest.raises(UploadError, match="symbolic link"):
+    with pytest.raises(UploadError, match="link"):
         plan(buffer.getvalue())
 
     archive = zipfile.ZipFile(io.BytesIO(romfs_zip()))
     archive.infolist()[0].flag_bits |= 0x1
     with pytest.raises(UploadError, match="encrypted"):
-        plan_extraction(archive, 100, 10**7)
+        plan_extraction(zip_entries(archive), 100, 10**7)
 
 
 def test_unsupported_compression_is_explained() -> None:
     archive = zipfile.ZipFile(io.BytesIO(romfs_zip()))
     archive.infolist()[0].compress_type = 9  # Deflate64, as Windows writes for large files
     with pytest.raises(UploadError, match="Deflate64"):
-        plan_extraction(archive, 100, 10**7)
+        plan_extraction(zip_entries(archive), 100, 10**7)
+
+
+@pytest.mark.parametrize(
+    ("member", "message"),
+    [
+        (lambda: _tar_info("packs/link", tarfile.SYMTYPE, linkname="/etc/passwd"), "link"),
+        (lambda: _tar_info("packs/hard", tarfile.LNKTYPE, linkname="config.ini"), "link"),
+        (lambda: _tar_info("packs/fifo", tarfile.FIFOTYPE), "other than plain files"),
+        (lambda: _tar_info("packs/dev", tarfile.CHRTYPE), "other than plain files"),
+        (lambda: _tar_info("../escape", tarfile.REGTYPE), "unsafe path"),
+        (lambda: _tar_info("/etc/cron.d/x", tarfile.REGTYPE), "unsafe path"),
+    ],
+)
+def test_unsafe_tar_members_are_refused(tmp_path: Path, member, message) -> None:
+    path = tmp_path / "romfs.tar"
+    path.write_bytes(romfs_tar("w", "", extra=[member()]))
+    with pytest.raises(UploadError, match=message):
+        plan_file(path)
 
 
 def test_packages_missing_and_multiple_romfs_are_explained() -> None:
@@ -313,12 +389,13 @@ def test_duplicate_entries_are_refused() -> None:
 
 def test_extraction_counts_real_bytes(tmp_path: Path) -> None:
     archive = zipfile.ZipFile(io.BytesIO(romfs_zip(filler=5000)))
-    entries, _ = plan_extraction(archive, 100, 10**7)
-    for info, _parts in entries:
-        if info.filename.endswith("filler.bin"):
-            info.file_size = 100  # the zip claims far less than it holds
+    entries, _ = plan_extraction(zip_entries(archive), 100, 10**7)
+    lying = [
+        (dataclasses.replace(e, size=100) if e.name.endswith("filler.bin") else e, parts)
+        for e, parts in entries
+    ]  # the archive claims far less than it holds
     with pytest.raises((UploadError, zipfile.BadZipFile)):
-        extract(archive, entries, tmp_path / "out", 10**7, lambda _done: None)
+        extract(lying, tmp_path / "out", 10**7, lambda _done: None)
 
 
 # ---- API and UI ------------------------------------------------------------------------------
@@ -425,3 +502,67 @@ def test_game_files_page_offers_upload(client: TestClient, monkeypatch) -> None:
     page = client.get("/game-files").text
     assert "mounted from the host" in page
     assert 'id="romfs-file"' not in page
+
+
+# ---- uploads and patching never overlap ---------------------------------------------------------
+
+
+def _send(client: TestClient, data: bytes, fingerprint: str) -> str:
+    """Upload a whole archive through the API; returns the upload's id."""
+    upload = client.post(
+        "/api/v1/romfs/upload", json={"size": len(data), "fingerprint": fingerprint}, headers=H
+    ).json()
+    offset = 0
+    while offset < len(data):
+        r = client.patch(
+            f"/api/v1/romfs/upload/{upload['id']}",
+            content=data[offset : offset + CHUNK],
+            headers={**H, "Upload-Offset": str(offset)},
+        )
+        offset = r.json()["offset"]
+    return upload["id"]
+
+
+def _install_and_wait(client: TestClient, upload_id: str) -> dict:
+    assert client.post(f"/api/v1/romfs/upload/{upload_id}/install", headers=H).status_code == 202
+    deadline = time.monotonic() + 10
+    while (upload := client.get("/api/v1/romfs/upload").json())["state"] == "installing":
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    return upload
+
+
+def test_no_install_while_a_patch_runs(client: TestClient, fake_runner) -> None:
+    assert _install_and_wait(client, _send(client, romfs_zip(), "first"))["state"] == "installed"
+    seed = client.post("/api/v1/seeds", json={"preset_id": "starter_preset"}, headers=H).json()
+    assert wait_for_job(client, seed["job_id"])["status"] == "succeeded"
+
+    fake_runner.release.clear()
+    patch = client.post(f"/api/v1/seeds/{seed['seed_id']}/mod", headers=H).json()
+    deadline = time.monotonic() + 10
+    while client.get(f"/api/v1/jobs/{patch['job_id']}").json()["status"] != "running":
+        assert time.monotonic() < deadline
+        time.sleep(0.02)
+
+    upload_id = _send(client, romfs_zip(toc=b"toc-1.0.0"), "second")
+    r = client.post(f"/api/v1/romfs/upload/{upload_id}/install", headers=H)
+    assert r.status_code == 409
+    assert "being patched" in r.json()["detail"]
+
+    fake_runner.release.set()
+    assert wait_for_job(client, patch["job_id"])["status"] == "succeeded"
+    assert _install_and_wait(client, upload_id)["state"] == "installed"  # fine once it's done
+    assert client.get("/api/v1/romfs").json()["version"] == "1.0.0"
+
+
+def test_no_patch_starts_while_game_files_are_installed(client: TestClient, monkeypatch) -> None:
+    assert _install_and_wait(client, _send(client, romfs_zip(), "first"))["state"] == "installed"
+    seed = client.post("/api/v1/seeds", json={"preset_id": "starter_preset"}, headers=H).json()
+    assert wait_for_job(client, seed["job_id"])["status"] == "succeeded"
+
+    uploads = client.app.state.romfs_uploads
+    monkeypatch.setattr(type(uploads), "installing", property(lambda _self: True))
+    patch = client.post(f"/api/v1/seeds/{seed['seed_id']}/mod", headers=H).json()
+    job = wait_for_job(client, patch["job_id"])
+    assert job["status"] == "failed"
+    assert "being installed" in job["error"]
