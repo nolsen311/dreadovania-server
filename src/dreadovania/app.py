@@ -10,11 +10,13 @@ from importlib.metadata import version
 from fastapi import FastAPI, Request, Response
 from pydantic import BaseModel
 
-from dreadovania import __version__, auth, problems, routes_auth
+from dreadovania import __version__, auth, problems, routes_api, routes_auth
 from dreadovania.config import Settings
 from dreadovania.db import Database
 from dreadovania.jobs import JobQueue
-from dreadovania.runner import RandovaniaRunner
+from dreadovania.presets import PresetStore
+from dreadovania.runner import RandovaniaRunner, Runner
+from dreadovania.seeds import SeedStore
 
 API_PREFIX = routes_auth.API_PREFIX
 log = logging.getLogger(__name__)
@@ -51,7 +53,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     db.migrate()
     queue = JobQueue(
         db,
-        RandovaniaRunner(timeout=settings.job_timeout_seconds),
+        app.state.runner or RandovaniaRunner(timeout=settings.job_timeout_seconds),
         settings.data_dir,
         randovania_version=version("randovania"),
         max_queued_per_owner=settings.max_queued_jobs_per_user,
@@ -61,6 +63,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         _announce_setup_link(settings, auth.create_setup_token(db))
     worker = asyncio.create_task(queue.run_worker(), name="job-worker")
     app.state.db, app.state.jobs = db, queue
+    app.state.presets = PresetStore(db)
+    app.state.seeds = SeedStore(db, settings.data_dir)
     try:
         yield
     finally:
@@ -88,7 +92,8 @@ def _announce_setup_link(settings: Settings, token: str) -> None:
     )  # fmt: skip
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, runner: Runner | None = None) -> FastAPI:
+    """Build the app. ``runner`` replaces Randovania in tests; production leaves it unset."""
     app = FastAPI(
         lifespan=_lifespan,
         title="Dreadovania Server",
@@ -100,11 +105,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
     )
     app.state.settings = settings if settings is not None else Settings()
+    app.state.runner = runner
     app.state.login_limiter = auth.AttemptLimiter(**routes_auth.LOGIN_LIMIT)
     app.state.setup_limiter = auth.AttemptLimiter(**routes_auth.SETUP_LIMIT)
     problems.install(app)
     app.include_router(routes_auth.public)
     app.include_router(routes_auth.protected)
+    app.include_router(routes_api.router)
 
     @app.middleware("http")
     async def security_headers(

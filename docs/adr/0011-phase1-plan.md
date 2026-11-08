@@ -83,6 +83,21 @@ sign-in, security limits) and how the work is split into pull requests.
   single argument it can only ever be read as data, never as a flag (PR 1,
   covered by tests including one against real Randovania).
 - `docs/openapi.json` is regenerated in each PR that changes the API (ADR 0007).
+- **As built in PR 3:**
+  - Imported presets are stored in the database (max 1 MB each) and have IDs
+    `user:<uuid>`; bundled presets keep their file names (`starter_preset`).
+    `POST /presets` takes the `.rdvpreset` JSON as the request body, read with a
+    hard size limit, so no multipart parser is needed. A preset deleted before
+    its job runs fails that job cleanly.
+  - A normal seed's `.rdvgame` **is** the full spoiler, while a race seed's has
+    none (ADR 0010). `GET /seeds/{id}/spoiler` returns pickup locations and the
+    starting state for the UI's reveal step, and 409 for race seeds.
+    `GET /seeds/{id}/rdvgame` is an explicit download and says so.
+  - Seeds record the preset's display name at generation time, so history stays
+    readable after a preset is deleted.
+  - Purge skips seeds still being generated and reports how many it skipped.
+  - SSE sends one `job` event per change and a keep-alive comment every 15 s,
+    and ends when the job does.
 
 ### 4. Sign-in (implements ADR 0004)
 

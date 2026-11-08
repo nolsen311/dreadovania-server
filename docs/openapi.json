@@ -1,6 +1,52 @@
 {
   "components": {
     "schemas": {
+      "GenerateIn": {
+        "properties": {
+          "permalink": {
+            "anyOf": [
+              {
+                "maxLength": 4100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Permalink"
+          },
+          "preset_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset Id"
+          },
+          "race": {
+            "default": false,
+            "title": "Race",
+            "type": "boolean"
+          },
+          "seed_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed Number"
+          }
+        },
+        "title": "GenerateIn",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -27,6 +73,89 @@
         "title": "Health",
         "type": "object"
       },
+      "JobOut": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
+          },
+          "seed_id": {
+            "title": "Seed Id",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "seed_id",
+          "status",
+          "progress",
+          "error",
+          "created_at",
+          "started_at",
+          "finished_at"
+        ],
+        "title": "JobOut",
+        "type": "object"
+      },
       "LoginRequest": {
         "properties": {
           "password": {
@@ -45,6 +174,231 @@
           "password"
         ],
         "title": "LoginRequest",
+        "type": "object"
+      },
+      "PresetOut": {
+        "properties": {
+          "builtin": {
+            "title": "Builtin",
+            "type": "boolean"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "builtin"
+        ],
+        "title": "PresetOut",
+        "type": "object"
+      },
+      "PurgeAll": {
+        "properties": {
+          "scope": {
+            "const": "all",
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "title": "PurgeAll",
+        "type": "object"
+      },
+      "PurgeOlderThan": {
+        "properties": {
+          "days": {
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Days",
+            "type": "integer"
+          },
+          "scope": {
+            "const": "older_than",
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "days"
+        ],
+        "title": "PurgeOlderThan",
+        "type": "object"
+      },
+      "Purged": {
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "integer"
+          },
+          "skipped_in_progress": {
+            "title": "Skipped In Progress",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deleted",
+          "skipped_in_progress"
+        ],
+        "title": "Purged",
+        "type": "object"
+      },
+      "SeedOut": {
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "permalink": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Permalink"
+          },
+          "preset_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset Id"
+          },
+          "preset_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset Name"
+          },
+          "race": {
+            "title": "Race",
+            "type": "boolean"
+          },
+          "randovania_version": {
+            "title": "Randovania Version",
+            "type": "string"
+          },
+          "requested_permalink": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Permalink"
+          },
+          "seed_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed Hash"
+          },
+          "seed_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed Number"
+          },
+          "source": {
+            "enum": [
+              "preset",
+              "permalink"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "ready",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "source",
+          "preset_id",
+          "preset_name",
+          "requested_permalink",
+          "seed_number",
+          "race",
+          "permalink",
+          "seed_hash",
+          "randovania_version",
+          "created_at",
+          "completed_at",
+          "job_id"
+        ],
+        "title": "SeedOut",
         "type": "object"
       },
       "ServerInfo": {
@@ -121,6 +475,76 @@
           "username"
         ],
         "title": "SignedIn",
+        "type": "object"
+      },
+      "Spoiler": {
+        "properties": {
+          "locations": {
+            "items": {
+              "$ref": "#/components/schemas/SpoilerLocation"
+            },
+            "title": "Locations",
+            "type": "array"
+          },
+          "starting_equipment": {
+            "title": "Starting Equipment"
+          },
+          "starting_location": {
+            "title": "Starting Location"
+          }
+        },
+        "required": [
+          "starting_location",
+          "starting_equipment",
+          "locations"
+        ],
+        "title": "Spoiler",
+        "type": "object"
+      },
+      "SpoilerLocation": {
+        "properties": {
+          "area": {
+            "title": "Area",
+            "type": "string"
+          },
+          "location": {
+            "title": "Location",
+            "type": "string"
+          },
+          "pickup": {
+            "title": "Pickup",
+            "type": "string"
+          },
+          "region": {
+            "title": "Region",
+            "type": "string"
+          }
+        },
+        "required": [
+          "region",
+          "area",
+          "location",
+          "pickup"
+        ],
+        "title": "SpoilerLocation",
+        "type": "object"
+      },
+      "Submitted": {
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "seed_id": {
+            "title": "Seed Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seed_id",
+          "job_id"
+        ],
+        "title": "Submitted",
         "type": "object"
       },
       "ValidationError": {
@@ -266,6 +690,545 @@
         "summary": "Info",
         "tags": [
           "meta"
+        ]
+      }
+    },
+    "/api/v1/jobs/{job_id}": {
+      "delete": {
+        "description": "Cancel a queued or running job.",
+        "operationId": "cancel_job_api_v1_jobs__job_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Job",
+        "tags": [
+          "jobs"
+        ]
+      },
+      "get": {
+        "operationId": "get_job_api_v1_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/api/v1/jobs/{job_id}/events": {
+      "get": {
+        "description": "Live progress as Server-Sent Events: one `job` event per change, until it finishes.",
+        "operationId": "job_events_api_v1_jobs__job_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Job Events",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/api/v1/presets": {
+      "get": {
+        "description": "Randovania's bundled Dread presets, then the user's imported ones.",
+        "operationId": "list_presets_api_v1_presets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PresetOut"
+                  },
+                  "title": "Response List Presets Api V1 Presets Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Presets",
+        "tags": [
+          "presets"
+        ]
+      },
+      "post": {
+        "description": "Import a `.rdvpreset` file. Send the file's JSON as the request body (max 1 MB).",
+        "operationId": "import_preset_api_v1_presets_post",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Import Preset",
+        "tags": [
+          "presets"
+        ]
+      }
+    },
+    "/api/v1/presets/{preset_id}": {
+      "delete": {
+        "description": "Delete an imported preset. Bundled presets can't be deleted.",
+        "operationId": "delete_preset_api_v1_presets__preset_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "preset_id",
+            "required": true,
+            "schema": {
+              "title": "Preset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Preset",
+        "tags": [
+          "presets"
+        ]
+      },
+      "get": {
+        "operationId": "get_preset_api_v1_presets__preset_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "preset_id",
+            "required": true,
+            "schema": {
+              "title": "Preset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Preset",
+        "tags": [
+          "presets"
+        ]
+      }
+    },
+    "/api/v1/seeds": {
+      "get": {
+        "description": "Newest first.",
+        "operationId": "list_seeds_api_v1_seeds_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SeedOut"
+                  },
+                  "title": "Response List Seeds Api V1 Seeds Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Seeds",
+        "tags": [
+          "seeds"
+        ]
+      },
+      "post": {
+        "description": "Start generating a seed from a preset or a permalink. Follow the job for progress.",
+        "operationId": "generate_seed_api_v1_seeds_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Submitted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generate Seed",
+        "tags": [
+          "seeds"
+        ]
+      }
+    },
+    "/api/v1/seeds/purge": {
+      "post": {
+        "description": "Delete all seeds, or all older than N days. The scope must be explicit.",
+        "operationId": "purge_seeds_api_v1_seeds_purge_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "discriminator": {
+                  "mapping": {
+                    "all": "#/components/schemas/PurgeAll",
+                    "older_than": "#/components/schemas/PurgeOlderThan"
+                  },
+                  "propertyName": "scope"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/PurgeAll"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PurgeOlderThan"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Purged"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Purge Seeds",
+        "tags": [
+          "seeds"
+        ]
+      }
+    },
+    "/api/v1/seeds/{seed_id}": {
+      "delete": {
+        "operationId": "delete_seed_api_v1_seeds__seed_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "seed_id",
+            "required": true,
+            "schema": {
+              "title": "Seed Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Seed",
+        "tags": [
+          "seeds"
+        ]
+      },
+      "get": {
+        "operationId": "get_seed_api_v1_seeds__seed_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "seed_id",
+            "required": true,
+            "schema": {
+              "title": "Seed Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Seed",
+        "tags": [
+          "seeds"
+        ]
+      }
+    },
+    "/api/v1/seeds/{seed_id}/rdvgame": {
+      "get": {
+        "description": "Download the `.rdvgame`. For non-race seeds, this file contains the spoiler.",
+        "operationId": "download_rdvgame_api_v1_seeds__seed_id__rdvgame_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "seed_id",
+            "required": true,
+            "schema": {
+              "title": "Seed Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Rdvgame",
+        "tags": [
+          "seeds"
+        ]
+      }
+    },
+    "/api/v1/seeds/{seed_id}/spoiler": {
+      "get": {
+        "description": "Where every pickup is. A separate request, so the UI can require a reveal step.",
+        "operationId": "get_spoiler_api_v1_seeds__seed_id__spoiler_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "seed_id",
+            "required": true,
+            "schema": {
+              "title": "Seed Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Spoiler"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Spoiler",
+        "tags": [
+          "seeds"
         ]
       }
     },

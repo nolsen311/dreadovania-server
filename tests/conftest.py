@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import asyncio
 import contextlib
+import json
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
@@ -29,6 +30,34 @@ def make_user(db: Database, user_id: str) -> str:
     return user_id
 
 
+def fake_rdvgame(race: bool) -> dict:
+    """Shaped like Randovania's output: race seeds carry no spoiler (see ADR 0010)."""
+    if race:
+        return {"schema_version": 1, "checksum": None, "info": {"has_spoiler": False}}
+    return {
+        "schema_version": 1,
+        "checksum": None,
+        "info": {"has_spoiler": True},
+        "item_order": [],
+        "game_modifications": [
+            {
+                "starting_location": {"region": "Artaria", "area": "Intro Room"},
+                "starting_equipment": {"pickups": ["Power Beam"]},
+                "locations": [
+                    {
+                        "node_identifier": {
+                            "region": "Artaria", "area": "Arbitrary Enky Room",
+                            "node": "Pickup (Missile Tank)",
+                        },
+                        "index": 1,
+                        "pickup": "Power Bomb Tank",
+                    }
+                ],
+            }
+        ],
+    }  # fmt: skip
+
+
 class FakeRunner:
     """Stands in for Randovania: fast, deterministic, and controllable."""
 
@@ -51,7 +80,7 @@ class FakeRunner:
         if self.fail_with:
             raise RunnerError(self.fail_with)
         out = workdir / "seed.rdvgame"
-        out.write_text('{"schema_version": 1, "info": {}}')
+        out.write_text(json.dumps(fake_rdvgame(request.race)))
         return GenerateResult(permalink="FAKEPERMALINK", seed_hash="HASH1234", rdvgame=out)
 
 
