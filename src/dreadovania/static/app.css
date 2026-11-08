@@ -79,7 +79,13 @@ progress { width: 100%; height: 1rem; accent-color: var(--accent); }
 .details dt { color: var(--muted); }
 .details dd { margin: 0; }
 .spoiler ul { padding-left: 1.1rem; margin: .5rem 0; }
-.spoiler summary, details > summary { cursor: pointer; font-weight: 600; min-height: var(--tap); display: flex; align-items: center; gap: .4rem; }
+.spoiler summary, details > summary { cursor: pointer; font-weight: 600; min-height: var(--tap); display: flex; align-items: center; gap: .5rem; list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+/* A chevron, so a fold-out reads as something to tap: points right, then down when open. */
+details > summary::before { content: ""; flex: none; width: .45rem; height: .45rem; border: solid var(--accent); border-width: 0 2.5px 2.5px 0; transform: rotate(-45deg); transition: transform .15s; margin: 0 .2rem; }
+details[open] > summary::before { transform: rotate(45deg); }
+details > summary:hover { text-decoration: underline; }
+@media (prefers-reduced-motion: reduce) { details > summary::before { transition: none; } }
 .danger-zone { margin-top: 2rem; }
 .confirm { border-left: 4px solid var(--bad); padding-left: .75rem; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
