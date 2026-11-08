@@ -15,6 +15,7 @@ from dreadovania.config import Settings
 from dreadovania.db import Database
 from dreadovania.jobs import JobQueue
 from dreadovania.presets import PresetStore
+from dreadovania.romfs import RomfsInspector
 from dreadovania.runner import RandovaniaRunner, Runner
 from dreadovania.seeds import SeedStore
 
@@ -65,6 +66,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.db, app.state.jobs = db, queue
     app.state.presets = PresetStore(db)
     app.state.seeds = SeedStore(db, settings.data_dir)
+    if app.state.romfs is None:
+        app.state.romfs = RomfsInspector(settings.romfs_path)
     try:
         yield
     finally:
@@ -92,8 +95,12 @@ def _announce_setup_link(settings: Settings, token: str) -> None:
     )  # fmt: skip
 
 
-def create_app(settings: Settings | None = None, runner: Runner | None = None) -> FastAPI:
-    """Build the app. ``runner`` replaces Randovania in tests; production leaves it unset."""
+def create_app(
+    settings: Settings | None = None,
+    runner: Runner | None = None,
+    romfs: RomfsInspector | None = None,
+) -> FastAPI:
+    """Build the app. Tests pass a fake ``runner`` and ``romfs``; production leaves them unset."""
     app = FastAPI(
         lifespan=_lifespan,
         title="Dreadovania Server",
@@ -106,6 +113,7 @@ def create_app(settings: Settings | None = None, runner: Runner | None = None) -
     )
     app.state.settings = settings if settings is not None else Settings()
     app.state.runner = runner
+    app.state.romfs = romfs
     app.state.login_limiter = auth.AttemptLimiter(**routes_auth.LOGIN_LIMIT)
     app.state.setup_limiter = auth.AttemptLimiter(**routes_auth.SETUP_LIMIT)
     problems.install(app)

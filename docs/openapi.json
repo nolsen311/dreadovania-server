@@ -257,6 +257,85 @@
         "title": "Purged",
         "type": "object"
       },
+      "RomfsOut": {
+        "description": "The game files' status. Never their contents, paths or file names.",
+        "properties": {
+          "file_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Count"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "missing",
+              "package",
+              "not_romfs",
+              "nested",
+              "unreadable",
+              "modified",
+              "unknown_version",
+              "unsupported_version",
+              "ready"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "supported_versions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Supported Versions",
+            "type": "array"
+          },
+          "total_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Bytes"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "state",
+          "ready",
+          "message",
+          "version",
+          "supported_versions",
+          "file_count",
+          "total_bytes"
+        ],
+        "title": "RomfsOut",
+        "type": "object"
+      },
       "SeedOut": {
         "properties": {
           "completed_at": {
@@ -961,6 +1040,28 @@
         "summary": "Get Preset",
         "tags": [
           "presets"
+        ]
+      }
+    },
+    "/api/v1/romfs": {
+      "get": {
+        "description": "Whether the server has usable game files (an extracted RomFS), and which version.",
+        "operationId": "get_romfs_api_v1_romfs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RomfsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Romfs",
+        "tags": [
+          "game files"
         ]
       }
     },
