@@ -139,12 +139,50 @@ else
   warn "could not create the release environment"
 fi
 
+# ---- release app (ADR 0015) ---------------------------------------------------
+# The /release workflow creates tags with a GitHub App you own, because the tag
+# ruleset can't exempt the workflow's own token on a personal account. The app
+# is created by hand (GitHub has no API for that); this step prepares the rest.
+step "Release app: environment 'release-tag' (main only) for the app's key"
+if mutate -X PUT "repos/$REPO/environments/release-tag" --input - <<'JSON'
+{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}
+JSON
+then
+  applied "release-tag environment created"
+  existing_main="$(get "repos/$REPO/environments/release-tag/deployment-branch-policies" \
+      --jq '.branch_policies[] | select(.name == "main" and .type == "branch") | .id' 2>/dev/null || true)"
+  if [ -n "$existing_main" ]; then
+    ok "branch policy main already present"
+  elif mutate -X POST "repos/$REPO/environments/release-tag/deployment-branch-policies" -f name=main -f type=branch; then
+    applied "release-tag environment limited to main"
+  else
+    warn "could not add the main branch policy to the release-tag environment"
+  fi
+else
+  warn "could not create the release-tag environment"
+fi
+RELEASE_APP_ID="$(get "repos/$REPO/actions/variables/RELEASE_APP_ID" --jq '.value' 2>/dev/null || true)"
+if [[ "$RELEASE_APP_ID" =~ ^[0-9]+$ ]]; then
+  ok "release app $RELEASE_APP_ID will be allowed to create v* tags"
+else
+  RELEASE_APP_ID=""
+  todo "create the release app and its settings (CONTRIBUTING.md, 'Release app'), then re-run this script"
+fi
+
 # ---- rulesets ---------------------------------------------------------------
 step "Rulesets from .github/rulesets/"
 existing_rulesets="$(get "repos/$REPO/rulesets" --jq '[.[] | {name, id}]')"
 for file in "$ROOT"/.github/rulesets/*.json; do
   name="$(jq -r '.name' "$file")"
   id="$(jq -r --arg n "$name" '.[] | select(.name == $n) | .id' <<<"$existing_rulesets")"
+  if [ "$name" = "protect-release-tags" ] && [ -n "$RELEASE_APP_ID" ]; then
+    # The app's ID differs per repository, so it's added here, not in the file.
+    with_app="$(mktemp)"
+    jq --argjson app "$RELEASE_APP_ID" \
+      '.bypass_actors += [{"actor_id": $app, "actor_type": "Integration", "bypass_mode": "always"}]' \
+      "$file" > "$with_app"
+    file="$with_app"
+  fi
   if [ -n "$id" ]; then
     if mutate -X PUT "repos/$REPO/rulesets/$id" --input "$file"; then applied "updated ruleset $name"; else warn "could not update ruleset $name"; fi
   else

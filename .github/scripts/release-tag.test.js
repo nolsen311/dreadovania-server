@@ -90,9 +90,8 @@ function fakeGitHub({
   runs = [{ name: "Test", status: "completed", conclusion: "success" }],
   comparison = "ahead",
   refError,
-  dispatchError,
 } = {}) {
-  const calls = { tags: [], refs: [], dispatches: [], comments: [], reactions: [], contentRefs: [], checkRefs: [] };
+  const calls = { tags: [], refs: [], comments: [], reactions: [], contentRefs: [], checkRefs: [], workflowGit: 0 };
   const pyproject = `[project]\nname = "dreadovania"\nversion = "${version}"\n`;
   const github = {
     paginate: async (fn, args) => fn(args),
@@ -113,6 +112,18 @@ function fakeGitHub({
           return runs;
         },
       },
+      // The workflow's own token must never be used to create tags.
+      git: {
+        createTag: async () => { calls.workflowGit++; throw new Error("workflow token used for a tag"); },
+        createRef: async () => { calls.workflowGit++; throw new Error("workflow token used for a ref"); },
+      },
+      issues: { createComment: async (args) => calls.comments.push(args) },
+      reactions: { createForIssueComment: async (args) => calls.reactions.push(args) },
+    },
+  };
+  // The release app's client: the only one that creates tags.
+  const tagClient = {
+    rest: {
       git: {
         createTag: async (args) => {
           calls.tags.push(args);
@@ -124,26 +135,18 @@ function fakeGitHub({
           return { data: {} };
         },
       },
-      actions: {
-        createWorkflowDispatch: async (args) => {
-          if (dispatchError) throw new Error(dispatchError);
-          calls.dispatches.push(args);
-        },
-      },
-      issues: { createComment: async (args) => calls.comments.push(args) },
-      reactions: { createForIssueComment: async (args) => calls.reactions.push(args) },
     },
   };
-  return { github, calls };
+  return { github, tagClient, calls };
 }
 
 const core = { notice: () => {}, warning: () => {} };
 const context = (p = payload()) => ({ payload: p, repo: { owner: OWNER, repo: "dreadovania-server" } });
-const opts = { versionFile: "pyproject.toml", releaseWorkflow: "release.yml" };
+const optsWith = (tagClient) => ({ versionFile: "pyproject.toml", tagClient });
 
-test("a valid /release tags the merge commit and starts the release on the tag", async () => {
-  const { github, calls } = fakeGitHub();
-  const result = await run({ github, context: context(), core }, opts);
+test("a valid /release tags the merge commit with the release app", async () => {
+  const { github, tagClient, calls } = fakeGitHub();
+  const result = await run({ github, context: context(), core }, optsWith(tagClient));
   assert.deepEqual(result, { released: true, tag: "v0.1.1", sha: "merge456" });
   assert.equal(calls.contentRefs[0], "merge456"); // the version at the merge commit
   assert.equal(calls.checkRefs[0], "head123"); // the commit CI tested
@@ -151,16 +154,19 @@ test("a valid /release tags the merge commit and starts the release on the tag",
   assert.equal(calls.tags[0].tag, "v0.1.1");
   assert.match(calls.tags[0].message, /Released by @nolsen311 with \/release on #21/);
   assert.deepEqual(calls.refs[0], { owner: OWNER, repo: "dreadovania-server", ref: "refs/tags/v0.1.1", sha: "tagobj789" });
-  assert.deepEqual(calls.dispatches[0], { owner: OWNER, repo: "dreadovania-server", workflow_id: "release.yml", ref: "v0.1.1" });
+  assert.equal(calls.workflowGit, 0);
   assert.equal(calls.reactions[0].content, "+1");
-  assert.match(calls.comments[0].body, /Tagged v0\.1\.1 at merge456\. The release workflow is starting/);
+  assert.match(calls.comments[0].body, /^Tagged v0\.1\.1 at merge456\. Workflows that run on new tags are starting/);
 });
 
 test("a non-owner comment does nothing at all", async () => {
-  const { github, calls } = fakeGitHub();
-  const result = await run({ github, context: context(payload({ comment: { user: { login: "mallory" } } })), core }, opts);
+  const { github, tagClient, calls } = fakeGitHub();
+  const result = await run(
+    { github, context: context(payload({ comment: { user: { login: "mallory" } } })), core },
+    optsWith(tagClient),
+  );
   assert.equal(result.released, false);
-  assert.equal(calls.tags.length + calls.comments.length + calls.dispatches.length, 0);
+  assert.equal(calls.tags.length + calls.comments.length, 0);
 });
 
 for (const [name, setup, reason] of [
@@ -172,35 +178,27 @@ for (const [name, setup, reason] of [
   ["a malformed version", { version: "0.1" }, /like 1\.2\.3/],
 ]) {
   test(`${name} is refused with an explanation, and nothing is tagged`, async () => {
-    const { github, calls } = fakeGitHub(setup);
-    const result = await run({ github, context: context(), core }, opts);
+    const { github, tagClient, calls } = fakeGitHub(setup);
+    const result = await run({ github, context: context(), core }, optsWith(tagClient));
     assert.equal(result.released, false);
     assert.match(result.reason, reason);
-    assert.equal(calls.refs.length + calls.dispatches.length + calls.reactions.length, 0);
+    assert.equal(calls.refs.length + calls.reactions.length, 0);
     assert.match(calls.comments[0].body, /^Not released:/);
   });
 }
 
-test("if the ruleset blocks the tag, the owner is told what to check", async () => {
-  const { github, calls } = fakeGitHub({ refError: "Repository rule violations found" });
-  const result = await run({ github, context: context(), core }, opts);
-  assert.equal(result.released, false);
-  assert.match(calls.comments[0].body, /tag ruleset lets GitHub Actions create version tags/);
-  assert.equal(calls.dispatches.length, 0);
-});
-
-test("if the release can't be started, the tag stays and the owner is told how to start it", async () => {
-  const { github, calls } = fakeGitHub({ dispatchError: "Workflow does not have 'workflow_dispatch' trigger" });
-  const result = await run({ github, context: context(), core }, opts);
-  assert.equal(result.tagged, "v0.1.1");
-  assert.match(calls.comments[0].body, /Tagged v0\.1\.1 .* couldn't be started .* Actions tab/);
-  assert.equal(calls.reactions.length, 0);
-});
-
-test("without a release workflow, it only tags", async () => {
+test("without the release app, it explains how to set it up", async () => {
   const { github, calls } = fakeGitHub();
-  const result = await run({ github, context: context(), core }, { versionFile: "pyproject.toml" });
-  assert.equal(result.released, true);
-  assert.equal(calls.dispatches.length, 0);
-  assert.equal(calls.comments[0].body.split("\n")[0], "Tagged v0.1.1 at merge456.");
+  const result = await run({ github, context: context(), core }, optsWith(null));
+  assert.equal(result.released, false);
+  assert.match(calls.comments[0].body, /release app isn't set up.*"Release app" in CONTRIBUTING\.md/);
+  assert.equal(calls.workflowGit, 0); // never falls back to the workflow's token
+});
+
+test("if GitHub refuses the tag, the owner is told what to check", async () => {
+  const { github, tagClient, calls } = fakeGitHub({ refError: "Reference update failed" });
+  const result = await run({ github, context: context(), core }, optsWith(tagClient));
+  assert.equal(result.released, false);
+  assert.match(calls.comments[0].body, /installed on this repository and listed in the tag ruleset's bypass list/);
+  assert.equal(calls.reactions.length, 0);
 });
