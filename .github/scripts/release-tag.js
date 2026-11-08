@@ -3,7 +3,9 @@
 // "/release" by comment: the repository owner releases a merged pull request
 // from anywhere, including a phone (see CONTRIBUTING.md and the ADR on releasing
 // by comment). The workflow tags the pull request's merge commit with the version
-// in that commit's version file, then starts the release workflow on the tag.
+// in that commit's version file, using the maintainer's release app (the tag
+// ruleset doesn't let the workflow's own token create version tags). A tag
+// created that way starts the release workflow like a pushed tag.
 //
 // Run by .github/workflows/release-tag.yml through actions/github-script. It
 // never checks out or runs code from the pull request: it reads everything
@@ -108,7 +110,9 @@ async function reply(github, context, number, text) {
 
 async function run({ github, context, core }, options = {}) {
   const versionFile = options.versionFile || "pyproject.toml";
-  const releaseWorkflow = options.releaseWorkflow || "";
+  // The client that creates the tag: the release app's (ADR 0015). The
+  // workflow's own token can't create v* tags under the tag ruleset.
+  const tagClient = options.tagClient || null;
   const payload = context.payload;
   const refused = checkTrigger(payload, context.repo.owner);
   if (refused) {
@@ -160,38 +164,34 @@ async function run({ github, context, core }, options = {}) {
   if (badVersion) return refuse(badVersion);
 
   const tag = `v${version}`;
+  if (!tagClient) {
+    return refuse(
+      "the release app isn't set up, so the tag can't be created. Follow \"Release app\" in CONTRIBUTING.md, " +
+      "then comment /release again",
+    );
+  }
   const actor = payload.comment.user.login;
   try {
     // An annotated tag, so the tag itself records who released it and from where.
-    const { data: tagObject } = await github.rest.git.createTag({
+    const { data: tagObject } = await tagClient.rest.git.createTag({
       ...context.repo,
       tag,
       object: sha,
       type: "commit",
       message: `${context.repo.repo} ${version}\n\nReleased by @${actor} with /release on #${number}.`,
     });
-    await github.rest.git.createRef({ ...context.repo, ref: `refs/tags/${tag}`, sha: tagObject.sha });
+    await tagClient.rest.git.createRef({ ...context.repo, ref: `refs/tags/${tag}`, sha: tagObject.sha });
   } catch (error) {
-    return refuse(`GitHub refused to create ${tag} (${error.message}). Check that the tag ruleset lets GitHub Actions create version tags`);
+    return refuse(
+      `GitHub refused to create ${tag} (${error.message}). Check that the release app is installed on this ` +
+      "repository and listed in the tag ruleset's bypass list (re-run scripts/bootstrap.sh)",
+    );
   }
 
+  // Created with the app's token, the tag starts "push: tags" workflows itself.
   const runsUrl = `${context.serverUrl || "https://github.com"}/${context.repo.owner}/${context.repo.repo}/actions`;
-  let started = "";
-  if (releaseWorkflow) {
-    // A tag created with the workflow token doesn't trigger workflows by itself;
-    // a workflow_dispatch does, and runs on the tag (GITHUB_REF=refs/tags/vX.Y.Z).
-    try {
-      await github.rest.actions.createWorkflowDispatch({ ...context.repo, workflow_id: releaseWorkflow, ref: tag });
-      started = ` The release workflow is starting: ${runsUrl}/workflows/${releaseWorkflow}`;
-    } catch (error) {
-      await reply(github, context, number,
-        `Tagged ${tag} at ${sha}, but the release workflow couldn't be started (${error.message}). ` +
-        `Start it from the Actions tab on the ${tag} tag.`);
-      return { released: false, tagged: tag, reason: error.message };
-    }
-  }
   await github.rest.reactions.createForIssueComment({ ...context.repo, comment_id: payload.comment.id, content: "+1" });
-  await reply(github, context, number, `Tagged ${tag} at ${sha}.${started}`);
+  await reply(github, context, number, `Tagged ${tag} at ${sha}. Workflows that run on new tags are starting: ${runsUrl}`);
   core.notice(`Tagged ${tag} at ${sha} for @${actor}.`);
   return { released: true, tag, sha };
 }

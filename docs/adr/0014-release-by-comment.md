@@ -1,6 +1,6 @@
 # 0014. Release with a `/release` comment
 
-- Status: Accepted
+- Status: Accepted; how the tag is created is amended by ADR 0015
 - Date: 2026-11-08
 - Amends ADR 0009 (who creates release tags). Builds on ADR 0012 (`/signoff`).
 

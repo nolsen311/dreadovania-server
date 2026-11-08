@@ -28,7 +28,7 @@ while [ $# -gt 0 ]; do
     --jq) jqf="$2"; shift 2 ;;
     --paginate) shift ;;
     -f|-F) shift 2 ;;
-    --input) [ "$2" = - ] && cat >/dev/null; shift 2 ;;
+    --input) if [ "$2" = - ]; then cat >> "$FAKE_LOG"; else cat "$2" >> "$FAKE_LOG"; fi; shift 2 ;;
     *) path="$1"; shift ;;
   esac
 done
@@ -47,6 +47,9 @@ case "$path" in
   user/installations) http_error 403 "You must authenticate with an access token authorized to a GitHub App" ;;
   repos/o/r/rulesets) body='[{"name":"protect-main","id":11}]' ;;
   repos/o/r/environments/release/deployment-branch-policies) http_error 404 "Not Found" ;;
+  repos/o/r/actions/variables/RELEASE_APP_ID)
+    if [ -n "${FAKE_APP_ID:-}" ]; then body="{\"name\":\"RELEASE_APP_ID\",\"value\":\"$FAKE_APP_ID\"}"
+    else http_error 404 "Not Found"; fi ;;
   repos/o/r/commits*) body='[
     {"sha":"1111111111111111111111111111111111111111","commit":{"message":"Initial commit","author":{"email":"m@example.com"}}},
     {"sha":"2222222222222222222222222222222222222222","commit":{"message":"Already remediated","author":{"email":"m@example.com"}}},
@@ -102,6 +105,15 @@ check "later steps still run after a failure"        called "-X POST repos/o/r/r
 check "existing ruleset is updated in place"         called "-X PUT repos/o/r/rulesets/11"
 check "real run reports changes as ok"               has "ok    merge settings applied"
 check "summary lists the manual step"                has "Manual step(s):"
+check "release-tag environment is created"           called "-X PUT repos/o/r/environments/release-tag"
+check "without the app, setting it up is a TODO"     has "TODO  create the release app"
+check "without the app, no bypass is added"          bash -c "! grep -q 'Integration' '$FAKE_LOG'"
+
+# ---- real run once the release app exists ------------------------------------
+FAKE_APP_ID=777 run
+check "the app is reported"                          has "release app 777 will be allowed to create v* tags"
+check "the app is added to the tag ruleset's bypass" bash -c "grep -q '\"actor_id\": 777' '$FAKE_LOG'"
+check "no app TODO once it exists"                   hasnt "TODO  create the release app"
 
 echo
 if [ "$FAILURES" -eq 0 ]; then echo "all bootstrap tests passed"; else echo "$FAILURES bootstrap test(s) failed"; exit 1; fi
