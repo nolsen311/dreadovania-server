@@ -22,7 +22,7 @@ from typing import Any
 
 from dreadovania import validation
 from dreadovania.db import Database, row_to_dict, utc_now
-from dreadovania.presets import bundled_dread_presets
+from dreadovania.presets import PresetStore, bundled_dread_presets, is_user_preset
 from dreadovania.runner import GenerateRequest, Runner, RunnerError
 
 log = logging.getLogger(__name__)
@@ -56,6 +56,7 @@ class JobQueue:
     ):
         self.db = db
         self.runner = runner
+        self.presets = PresetStore(db)
         self.seeds_dir = data_dir / "seeds"
         self.work_dir = data_dir / "work"
         self.randovania_version = randovania_version
@@ -90,13 +91,17 @@ class JobQueue:
                     "a permalink already contains its seed number and race setting"
                 )
         else:
-            if preset_key not in bundled_dread_presets():
+            preset = self.presets.get(owner_id, preset_key)
+            if preset is None:
                 raise validation.InvalidInput("unknown preset")
+            preset_name = preset.name
             seed_number = validation.check_seed_number(
                 seed_number if seed_number is not None
                 else secrets.randbelow(validation.MAX_SEED_NUMBER)
             )  # fmt: skip
 
+        if permalink is not None:
+            preset_name = None
         seed_id, job_id, now = new_id(), new_id(), utc_now()
         with self.db.transaction() as conn:
             active = conn.execute(
@@ -108,11 +113,11 @@ class JobQueue:
                     f"you already have {active} seeds waiting; try again when one finishes"
                 )
             conn.execute(
-                "INSERT INTO seeds (id, owner_id, status, source, preset_key, requested_permalink,"
-                " seed_number, race, randovania_version, created_at)"
-                " VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO seeds (id, owner_id, status, source, preset_key, preset_name,"
+                " requested_permalink, seed_number, race, randovania_version, created_at)"
+                " VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)",
                 (seed_id, owner_id, "preset" if preset_key else "permalink", preset_key,
-                 permalink, seed_number, int(race), self.randovania_version, now),
+                 preset_name, permalink, seed_number, int(race), self.randovania_version, now),
             )  # fmt: skip
             conn.execute(
                 "INSERT INTO jobs (id, owner_id, seed_id, kind, status, created_at)"
@@ -260,14 +265,14 @@ class JobQueue:
                 self._set_progress(job_id, line)
                 self._bump_soon()
 
-        if job["preset_key"] is not None:
-            request = GenerateRequest(
-                preset_file=bundled_dread_presets()[job["preset_key"]].path,
-                seed_number=job["seed_number"],
-                race=bool(job["race"]),
-            )
-        else:
-            request = GenerateRequest(permalink=job["requested_permalink"])
+        try:
+            request = self._request_for(job, workdir)
+        except RunnerError as exc:
+            with self.db.transaction() as conn:
+                self._finish(conn, job_id, seed_id, "failed", "failed", str(exc))
+            shutil.rmtree(workdir, ignore_errors=True)
+            await self._bump()
+            return
 
         task = asyncio.create_task(self.runner.generate(request, workdir, on_progress))
         self._current = (job_id, task)
@@ -309,6 +314,22 @@ class JobQueue:
             self._cancel_requested.discard(job_id)
             shutil.rmtree(workdir, ignore_errors=True)
             await self._bump()
+
+    def _request_for(self, job: dict[str, Any], workdir: Path) -> GenerateRequest:
+        key = job["preset_key"]
+        if key is None:
+            return GenerateRequest(permalink=job["requested_permalink"])
+        if is_user_preset(key):
+            content = self.presets.content(job["owner_id"], key)
+            if content is None:
+                raise RunnerError("the preset was deleted before this seed could be generated")
+            preset_file = workdir / "preset.rdvpreset"
+            preset_file.write_text(content, encoding="utf-8")
+        else:
+            preset_file = bundled_dread_presets()[key].path
+        return GenerateRequest(
+            preset_file=preset_file, seed_number=job["seed_number"], race=bool(job["race"])
+        )
 
     def _set_progress(self, job_id: str, line: str) -> None:
         with self.db.connect() as conn:
