@@ -97,9 +97,19 @@ class SeedStore:
         if not data.get("info", {}).get("has_spoiler") or not worlds:
             raise NoSpoiler
         world = worlds[0]
+        # Randovania writes the start as "Region/Area/Node" and the starting items
+        # as {"pickups": [...]}; normalise both for the API and the UI.
+        start = world.get("starting_location")
+        parts = start.split("/", 2) if isinstance(start, str) else []
+        equipment = world.get("starting_equipment")
+        items = equipment.get("pickups", []) if isinstance(equipment, dict) else []
         return {
-            "starting_location": world.get("starting_location"),
-            "starting_equipment": world.get("starting_equipment"),
+            "starting_location": (
+                dict(zip(("region", "area", "node"), parts, strict=True))
+                if len(parts) == 3
+                else None
+            ),
+            "starting_items": [str(i) for i in items],
             "locations": [
                 {
                     "region": loc["node_identifier"]["region"],
@@ -121,6 +131,16 @@ class SeedStore:
             conn.execute("DELETE FROM seeds WHERE id = ? AND owner_id = ?", (seed["id"], owner_id))
         shutil.rmtree(self._dir(owner_id, seed["id"]), ignore_errors=True)
         return True
+
+    def count_purgeable(self, owner_id: str, older_than_days: int | None) -> int:
+        """How many seeds a purge with the same scope would delete (for confirmation)."""
+        where, params = "owner_id = ? AND status != 'pending'", [owner_id]
+        if older_than_days is not None:
+            cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
+            where += " AND created_at < ?"
+            params.append(cutoff.isoformat(timespec="milliseconds"))
+        with self.db.connect() as conn:
+            return conn.execute(f"SELECT count(*) FROM seeds WHERE {where}", params).fetchone()[0]  # noqa: S608
 
     def purge(self, owner_id: str, older_than_days: int | None) -> tuple[int, int]:
         """Delete all finished seeds, or those older than N days.

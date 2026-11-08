@@ -1,0 +1,24 @@
+<section id="status" class="card stack"
+  {% if seed.status == "pending" %}hx-get="/seeds/{{ seed.id }}/status" hx-trigger="every 1s" hx-swap="outerHTML"{% endif %}>
+  <p><span class="badge {{ seed.status }}">{{ seed.status }}</span>
+    {% if seed.status == "pending" and job %}{{ "Waiting to start…" if job.status == "queued" else "Generating…" }}{% endif %}</p>
+  {% if seed.status == "pending" and job %}
+    {% if job.progress %}<p class="progress mono">{{ job.progress }}</p>{% endif %}
+    <form hx-post="/jobs/{{ job.id }}/cancel"><button type="submit">Cancel</button></form>
+  {% elif seed.status == "failed" and job and job.error %}
+    <p class="error">{{ job.error }}</p>
+  {% elif seed.status == "ready" %}
+    <dl class="details">
+      <dt>Hash</dt><dd class="mono">{{ seed.seed_hash }}</dd>
+      <dt>Permalink</dt><dd class="mono wrap">{{ seed.permalink }}</dd>
+    </dl>
+    <a class="button primary" href="/api/v1/seeds/{{ seed.id }}/rdvgame" download>Download .rdvgame</a>
+    {% if seed.race %}
+      <p class="muted">Race seed: generated without a spoiler.</p>
+    {% else %}
+      <p class="muted">The downloaded file contains the spoiler.</p>
+      <button type="button" hx-get="/seeds/{{ seed.id }}/spoiler" hx-target="#spoiler"
+        hx-confirm="Show where every item is? This spoils the seed.">Reveal spoiler</button>
+    {% endif %}
+  {% endif %}
+</section>

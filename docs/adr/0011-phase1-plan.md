@@ -144,6 +144,18 @@ sign-in, security limits) and how the work is split into pull requests.
 4. **Mobile UI.** Server-rendered with htmx (answer 1). The first screens:
    setup, sign-in, generate, progress, seed history and details, spoiler reveal,
    and purge (with a confirmation step).
+   **As built:** Jinja templates and htmx 2.0.11, vendored after checking npm's
+   published integrity and pinned by SHA-256 (`static/vendor/VENDOR.md`, checked
+   by a test). htmx runs with `allowEval`, `allowScriptTags` and indicator styles
+   off and `selfRequestsOnly` on, so the CSP stays `default-src 'self'`, and a
+   test rejects inline scripts, styles and handlers in templates. Forms are plain
+   URL-encoded, read with the standard library under a 16 KB limit (no multipart
+   parser); preset upload is a small script posting JSON to the API. Progress is
+   a 1-second poll of a status fragment that stops when the seed is done (SSE
+   stays in the API for the Switch app). UI routes are excluded from OpenAPI and
+   reuse the API's sign-in flows, stores and rules; a test checks that every
+   state-changing UI route needs a session and a same-origin `Origin`. Purge
+   shows how many seeds would be deleted and needs an explicit confirmation.
 5. **TLS and passkeys.** Bring-your-own certificates with hot reload, a trusted-proxy
    allowlist and hostname redirect (ADR 0005), and then passkeys.
 

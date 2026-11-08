@@ -58,7 +58,8 @@ def _bundled_info() -> list[PresetInfo]:
     for key, preset in bundled_dread_presets().items():
         data = json.loads(preset.path.read_text(encoding="utf-8"))
         infos.append(PresetInfo(key, preset.name, str(data.get("description", "")), True))
-    return infos
+    # The starter preset first: it's the sensible default, not April Fools.
+    return sorted(infos, key=lambda p: (p.id != "starter_preset", p.name.lower()))
 
 
 def is_user_preset(preset_id: str) -> bool:

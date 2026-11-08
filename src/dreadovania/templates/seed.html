@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ seed.preset_name or "Seed" }} · Dreadovania{% endblock %}
+{% block content %}
+<h1>{{ seed.preset_name or "From permalink" }}{% if seed.race %} <span class="badge race">race</span>{% endif %}</h1>
+{% include "_seed_status.html" %}
+<dl class="card details">
+  {% if seed.seed_number is not none %}<dt>Seed number</dt><dd>{{ seed.seed_number }}</dd>{% endif %}
+  {% if seed.requested_permalink %}<dt>Requested permalink</dt><dd class="mono">{{ seed.requested_permalink }}</dd>{% endif %}
+  <dt>Randovania</dt><dd>{{ seed.randovania_version }}</dd>
+  <dt>Created</dt><dd>{{ seed.created_at[:19] | replace("T", " ") }} UTC</dd>
+</dl>
+<div id="spoiler"></div>
+<form hx-post="/seeds/{{ seed.id }}/delete" hx-confirm="Delete this seed? This can't be undone." class="danger-zone">
+  <button type="submit" class="danger">Delete seed</button>
+</form>
+{% endblock %}

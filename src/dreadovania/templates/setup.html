@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Set up · Dreadovania{% endblock %}
+{% block content %}
+<h1>Welcome</h1>
+<p>Create the account you'll use to sign in. This page only works with the setup link printed in the server's log.</p>
+<p id="token-missing" class="error" hidden>No setup token found. Open the full setup link from the server log (it ends in <code>#token=…</code>).</p>
+<form method="post" action="/setup" hx-post="/setup" hx-target="#messages" class="card stack">
+  <input type="hidden" name="token" id="setup-token">
+  <label>Username
+    <input name="username" required maxlength="64" pattern="[A-Za-z0-9._\-]{1,64}" autocomplete="username" autocapitalize="none" spellcheck="false">
+  </label>
+  <label>Password <small>(at least 12 characters)</small>
+    <input name="password" type="password" required minlength="12" maxlength="1024" autocomplete="new-password">
+  </label>
+  <label>This server's address
+    <input name="public_url" id="public-url" type="url" required value="{{ suggested_url }}" inputmode="url" autocapitalize="none" spellcheck="false">
+    <small>The address you're using right now. Sign-in only works from this address.</small>
+  </label>
+  <button type="submit" class="primary">Create account</button>
+</form>
+{% endblock %}

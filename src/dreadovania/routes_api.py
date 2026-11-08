@@ -126,9 +126,15 @@ class SpoilerLocation(BaseModel):
     pickup: str
 
 
+class StartingLocation(BaseModel):
+    region: str
+    area: str
+    node: str
+
+
 class Spoiler(BaseModel):
-    starting_location: Any
-    starting_equipment: Any
+    starting_location: StartingLocation | None
+    starting_items: list[str]
     locations: list[SpoilerLocation]
 
 

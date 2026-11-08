@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Presets · Dreadovania{% endblock %}
+{% block content %}
+<h1>Presets</h1>
+<div class="card stack">
+  <label>Import a preset <small>(a <code>.rdvpreset</code> file exported from Randovania, max 1 MB)</small>
+    <input type="file" id="preset-file" accept=".rdvpreset,application/json">
+  </label>
+  <button type="button" id="import-preset" class="primary">Import</button>
+</div>
+<ul class="seeds">
+  {% for p in presets %}
+  <li class="row">
+    <span><strong>{{ p.name }}</strong> {% if p.builtin %}<span class="badge">built in</span>{% endif %}
+      {% if p.description %}<br><small>{{ p.description }}</small>{% endif %}</span>
+    {% if not p.builtin %}
+    <form hx-post="/presets/{{ p.id }}/delete" hx-confirm="Delete the preset “{{ p.name }}”?">
+      <button type="submit" class="danger small">Delete</button>
+    </form>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endblock %}
