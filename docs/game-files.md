@@ -128,6 +128,13 @@ server can install it over Wi-Fi through **ftpd** on the Switch (ADR 0016):
    **Send to Switch**, choose the Switch and press **Send to Switch**.
 3. When it says **Sent**, close ftpd and launch Dread with a new save file.
 
+**Firewalls:** besides its own port (5000), ftpd opens a new, random port on the
+Switch for every file it sends or receives (passive mode). If a firewall sits
+between the server and the Switch, for example when the Switch is on a separate
+VLAN, allow TCP from the server's host to the Switch on ports 1024–65535.
+Allowing only port 5000 lets ftpd log in but not transfer files; **Test
+connection** checks both.
+
 **What a send changes on the SD card:**
 - It removes the files the previous Dreadovania seed installed, then copies
   this seed into `atmosphere/contents/010093801237c000/` (and

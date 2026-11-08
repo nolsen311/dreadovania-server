@@ -2,6 +2,7 @@
 import asyncio
 import contextlib
 import json
+import socket
 import threading
 import warnings
 from collections.abc import AsyncIterator, Callable, Iterator
@@ -166,19 +167,69 @@ def sd_card(tmp_path: Path) -> Path:
     return root
 
 
-@pytest.fixture
-def ftpd(sd_card: Path) -> Iterator[dict]:
-    """A local FTP server: anonymous, plus user "samus" with password "secret"."""
+class FtpdLikeHandler(FTPHandler):
+    """Answers like mtheall's ftpd where it differs from pyftpdlib.
+
+    ftpd replies "450" (a temporary error), not "550", when RETR names a file
+    that doesn't exist (``FtpSession::xferFile``).
+    """
+
+    def ftp_RETR(self, file: str) -> None:
+        if not self.fs.isfile(file):
+            self.respond("450 No such file or directory")
+            return
+        super().ftp_RETR(file)
+
+
+class BlockedTransfersHandler(FtpdLikeHandler):
+    """As if a firewall blocked ftpd's passive ports: PASV names a closed port."""
+
+    closed_port = 0
+
+    def ftp_PASV(self, line: str) -> None:
+        high, low = divmod(self.closed_port, 256)
+        self.respond(f"227 Entering passive mode (127,0,0,1,{high},{low}).")
+
+
+def free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@contextlib.contextmanager
+def serve_ftp(root: Path, base: type[FTPHandler] = FtpdLikeHandler) -> Iterator[dict]:
+    """Serve root over FTP: anonymous, plus user "samus" with password "secret"."""
     authorizer = DummyAuthorizer()
     with warnings.catch_warnings():
         # ftpd lets anyone write by default, so the stand-in does too.
         warnings.simplefilter("ignore", RuntimeWarning)
-        authorizer.add_anonymous(str(sd_card), perm="elradfmwMT")
-    authorizer.add_user("samus", "secret", str(sd_card), perm="elradfmwMT")
-    handler = type("Handler", (FTPHandler,), {"authorizer": authorizer, "banner": "test ftpd"})
+        authorizer.add_anonymous(str(root), perm="elradfmwMT")
+    authorizer.add_user("samus", "secret", str(root), perm="elradfmwMT")
+    handler = type(
+        "Handler",
+        (base,),
+        {"authorizer": authorizer, "banner": "test ftpd", "closed_port": free_port()},
+    )
     server = ThreadedFTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, kwargs={"timeout": 0.05}, daemon=True)
     thread.start()
-    yield {"host": "127.0.0.1", "port": server.socket.getsockname()[1], "root": sd_card}
-    server.close_all()
-    thread.join(timeout=5)
+    try:
+        yield {"host": "127.0.0.1", "port": server.socket.getsockname()[1], "root": root}
+    finally:
+        server.close_all()
+        thread.join(timeout=5)
+
+
+@pytest.fixture
+def ftpd(sd_card: Path) -> Iterator[dict]:
+    """A local FTP server that answers like ftpd."""
+    with serve_ftp(sd_card) as server:
+        yield server
+
+
+@pytest.fixture
+def ftpd_blocked(sd_card: Path) -> Iterator[dict]:
+    """ftpd behind a firewall that allows only its own port, not file transfers."""
+    with serve_ftp(sd_card, BlockedTransfersHandler) as server:
+        yield server

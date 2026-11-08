@@ -37,6 +37,12 @@ _PUBLIC = (
     " i.seed_id AS installed_seed_id, i.state AS install_state"
 )
 _FROM = "FROM switches s LEFT JOIN switch_installs i ON i.switch_id = s.id"
+# ftpd opens a new, random port for every file transfer (passive mode), so a
+# firewall that only allows ftpd's own port lets the test log in but not send.
+DATA_PORTS_HINT = (
+    "ftpd opens a new, random port on the Switch for each transfer: allow TCP from this "
+    "server to the Switch on ports 1024-65535 in your firewall"
+)
 
 Resolver = Callable[[str, int], list[str]]
 
@@ -277,6 +283,13 @@ def check_connection(
     except SwitchError as exc:
         return TestResult(False, _sentence(str(exc)))
     try:
+        return _check_folder_and_transfers(ftp)
+    finally:
+        _close(ftp)
+
+
+def _check_folder_and_transfers(ftp: ftplib.FTP) -> TestResult:
+    try:
         ftp.cwd("/atmosphere")
     except ftplib.error_perm:
         return TestResult(
@@ -286,8 +299,19 @@ def check_connection(
         )
     except (ftplib.Error, OSError) as exc:
         return TestResult(False, f"Connected to ftpd, but it stopped responding ({exc}).")
-    finally:
-        _close(ftp)
+    try:
+        # A listing needs a second, file-transfer connection, like a send does.
+        ftp.nlst()
+    except (TimeoutError, ConnectionRefusedError, ftplib.error_temp) as exc:
+        # For a 4xx reply, only 425/426 mean the transfer connection never arrived.
+        if not isinstance(exc, ftplib.error_temp) or str(exc).startswith(("425", "426")):
+            return TestResult(
+                False, f"Logged in to ftpd, but couldn't open a file transfer: {DATA_PORTS_HINT}."
+            )
+    except ftplib.error_perm:
+        pass  # the transfer connection opened; refusing the listing itself doesn't matter
+    except (ftplib.Error, OSError) as exc:
+        return TestResult(False, f"Connected to ftpd, but it stopped responding ({exc}).")
     return TestResult(True, "Connected to ftpd and found the Atmosphere folder.")
 
 

@@ -506,6 +506,13 @@ class JobQueue:
                     ftp, mod_dir, seed_id=job["seed_id"], previous=previous, options=options,
                     record_planned=record_planned, on_progress=progress, cancelled=stop.is_set,
                 )  # fmt: skip
+            except (TimeoutError, ConnectionRefusedError):
+                raise PushError(
+                    f"the Switch stopped answering, or a file transfer was blocked: "
+                    f"{switches.DATA_PORTS_HINT}"
+                ) from None
+            except (ftplib.error_perm, ftplib.error_temp) as exc:
+                raise PushError(f"ftpd on the Switch refused part of the send ({exc})") from None
             except (ftplib.Error, OSError, EOFError) as exc:
                 raise PushError(f"the connection to the Switch was lost ({exc})") from None
             finally:

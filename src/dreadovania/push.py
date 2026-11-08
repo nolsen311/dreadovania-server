@@ -41,7 +41,7 @@ MOD_ROOTS = (
 _KEEP_DIRS = frozenset({"/", "/atmosphere", "/atmosphere/contents", "/atmosphere/exefs_patches"})
 SD_MANIFEST = "/config/dreadovania/installed.json"
 BLOCK = 64 * 1024
-MAX_LISTED = 10
+MAX_LISTED = 3
 
 
 class PushError(Exception):
@@ -50,11 +50,12 @@ class PushError(Exception):
 
 class Conflict(PushError):
     def __init__(self, files: list[str]) -> None:
-        shown = ", ".join(files[:MAX_LISTED]) + (" …" if len(files) > MAX_LISTED else "")
+        shown = ", ".join(files[:MAX_LISTED]) + (", …" if len(files) > MAX_LISTED else "")
         super().__init__(
-            f"{len(files)} file(s) on the Switch belong to another mod and would be replaced: "
-            f'{shown}. Send again with "Replace other mods\' files" to replace them, or '
-            "remove that mod first"
+            f"{len(files)} file(s) in Dread's mod folders weren't installed by Dreadovania and "
+            f"would be replaced: {shown}. If they're from a seed you installed by hand, send "
+            'again with "Empty Dread\'s mod folder first" under Options. If they belong to '
+            'another mod, choose "Replace other mods\' files", or remove that mod first'
         )
         self.files = files
 
@@ -106,12 +107,17 @@ def plan(mod_dir: Path) -> list[tuple[Path, str, int]]:
 
 
 def read_sd_manifest(ftp: ftplib.FTP) -> list[str]:
-    """The files the card says Dreadovania installed; anything odd is ignored."""
+    """The files the card says Dreadovania installed; anything odd is ignored.
+
+    A missing manifest is normal before the first send. ftpd reports it as
+    "450" (a temporary error), other servers as "550", so both mean "none".
+    The server's own record of the install still applies either way.
+    """
     buffer = io.BytesIO()
     try:
         ftp.retrbinary(f"RETR {SD_MANIFEST}", buffer.write)
         data = json.loads(buffer.getvalue().decode("utf-8"))
-    except (ftplib.error_perm, ValueError, UnicodeDecodeError):
+    except (ftplib.error_perm, ftplib.error_temp, ValueError, UnicodeDecodeError):
         return []
     files = data.get("files") if isinstance(data, dict) else None
     if not isinstance(files, list):
