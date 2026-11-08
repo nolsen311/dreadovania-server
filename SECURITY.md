@@ -32,6 +32,12 @@ cosign verify ghcr.io/nolsen311/dreadovania-server@sha256:<digest> \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+**v0.1.0 only:** its tags point to an unsigned image index that wraps the signed
+image, so verifying the tag fails. Verify and pin the signed image's own digest
+instead, `sha256:2a4a6a082d08a82ec2f83019da5b6c9914c616c199a76618930f8b5ca843c5dc`
+(linux/amd64). Later releases tag the signed digest itself, and the release
+workflow checks this before it finishes.
+
 ## Deployment guidance
 
 - Run the container with the hardening in [`compose.yaml`](compose.yaml).
