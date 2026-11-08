@@ -72,6 +72,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.db, app.state.jobs = db, queue
     app.state.presets = PresetStore(db)
     app.state.seeds = SeedStore(db, settings.data_dir)
+    if app.state.romfs is None:
+        app.state.romfs = RomfsInspector(settings.romfs_path)
     try:
         yield
     finally:
