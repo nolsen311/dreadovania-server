@@ -34,7 +34,7 @@ Items marked **(verify)** are assumptions to confirm during the Phase 0 spike.
 |---|---|---|
 | **0. Spike** | Confirm Randovania's CLI generates a Dread seed headless in a Debian-slim container. Confirm how Dread *export* can be triggered without the GUI. Check Qt headless needs. | No |
 | **1. Generate** ([ADR 0011](adr/0011-phase1-plan.md)) | Web UI, setup wizard and authentication, TLS support, the full CI/CD pipeline. | No |
-| **2. Patch** | Dread RomFS goes in, a mod comes out, and you can download it as a zip. | Yes (user-supplied) |
+| **2. Patch** ([ADR 0013](adr/0013-phase2-patching.md)) | Dread RomFS goes in, a mod comes out, and you can download it as a zip. | Yes (user-supplied) |
 | **3. Send to Switch** | FTP push to `ftpd` into a SimpleModManager-compatible library, with a saved Switch. | Yes |
 | **4. NRO** | `dreadovania-nx`: pair, generate, download and swap seeds on the Switch. | Yes |
 
