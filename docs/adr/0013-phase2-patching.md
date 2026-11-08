@@ -80,7 +80,8 @@ export runs headless through the CLI until it reads the user's RomFS
   version detection injected, and a fake runner; the real path is verified by
   the maintainer on their own server before each Phase 2 PR is merged, using a
   short checklist in the PR.
-- A patched mod is a few hundred MB; disk use grows with patched seeds. The
+- A patched mod is a few hundred MB (corrected: typically tens of MB, as the
+  patcher writes only changed assets; see ADR 0016); disk use grows with patched seeds. The
   seed list shows mod sizes, and purge removes them.
 - Uploading a multi-gigabyte RomFS from a phone is slow; mounting stays the
   recommended way.
