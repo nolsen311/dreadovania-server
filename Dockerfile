@@ -44,6 +44,14 @@ LABEL org.opencontainers.image.title="Dreadovania Server" \
       org.opencontainers.image.source="https://github.com/nolsen311/dreadovania-server" \
       org.opencontainers.image.licenses="GPL-3.0-or-later"
 
+# Debian publishes security fixes before the Python image is rebuilt with them, so
+# apply them here: the image scan then reflects what Debian has already fixed,
+# not when the base image was last rebuilt. Only the runtime stage ships.
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get -y --no-install-recommends upgrade \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --system --gid 10001 dreadovania \
  && useradd --system --uid 10001 --gid dreadovania --no-create-home \
             --home-dir /nonexistent --shell /usr/sbin/nologin dreadovania \
