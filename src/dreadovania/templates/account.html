@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Account · Dreadovania{% endblock %}
+{% block content %}
+<h1>Account</h1>
+<section class="card stack">
+  <h2>Passkeys</h2>
+  <p class="muted">Sign in with your phone's fingerprint or face, your computer, or your password
+    manager instead of typing a password. Your password keeps working too.</p>
+  {% if passkeys_unavailable %}
+    <p>Passkeys aren't available on this server yet: {{ passkeys_unavailable }}</p>
+  {% else %}
+    {% if passkeys %}
+      <ul class="seeds">
+        {% for p in passkeys %}
+          <li class="row">
+            <span><strong>{{ p.name }}</strong><br>
+              <small class="muted">Added {{ p.created_at[:10] }}{% if p.last_used_at %} · last used {{ p.last_used_at[:10] }}{% endif %}{% if p.rp_id %} · for {{ p.rp_id }}{% endif %}</small></span>
+            <form method="post" action="/account/passkeys/{{ p.id }}/delete" hx-post="/account/passkeys/{{ p.id }}/delete" hx-confirm="Remove the passkey &quot;{{ p.name }}&quot;? You can still sign in with your password." class="inline">
+              <button type="submit" class="danger">Remove</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>You haven't added a passkey yet.</p>
+    {% endif %}
+    <form id="passkey-add" class="stack">
+      <label>Name <small>(so you can tell your passkeys apart)</small>
+        <input name="name" maxlength="60" placeholder="e.g. My phone" autocomplete="off">
+      </label>
+      <button type="submit" class="primary">Add a passkey</button>
+    </form>
+  {% endif %}
+</section>
+<section class="card stack">
+  <p>Signed in as <strong>{{ user.username }}</strong>.</p>
+  <form method="post" action="/logout" hx-post="/logout">
+    <button type="submit">Sign out</button>
+  </form>
+</section>
+{% endblock %}

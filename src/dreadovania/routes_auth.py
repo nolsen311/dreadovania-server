@@ -7,12 +7,12 @@ are public on purpose: setup, login, and server info.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, Field
 
-from dreadovania import auth
+from dreadovania import auth, passkeys
 from dreadovania.config import Settings
 from dreadovania.db import Database
 from dreadovania.problems import ApiProblem
@@ -24,6 +24,9 @@ SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 # Limits on sign-in attempts (ADR 0011 §4). Login counts failures; setup counts every try.
 LOGIN_LIMIT = {"per_client": 10, "overall": 100, "window_seconds": 15 * 60}
 SETUP_LIMIT = {"per_client": 10, "overall": 30, "window_seconds": 15 * 60}
+# Starting a passkey sign-in stores a challenge, so it is limited too. Every page
+# load of the sign-in page starts one (for passkey autofill), hence the higher limit.
+PASSKEY_START_LIMIT = {"per_client": 60, "overall": 600, "window_seconds": 15 * 60}
 
 
 # ---- helpers ------------------------------------------------------------------------
@@ -242,3 +245,135 @@ def current_session(user: CurrentUser) -> SignedIn:
 @protected.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT, tags=["sign-in"])
 def logout(request: Request, response: Response) -> None:
     perform_logout(request, response)
+
+
+# ---- passkeys (ADR 0004) -------------------------------------------------------------------
+
+
+class PasskeyOptions(BaseModel):
+    """Pass ``options`` to the browser's WebAuthn call, then send back its response
+    with ``challenge_id``. Valid for 5 minutes, once."""
+
+    challenge_id: str
+    options: dict[str, Any]
+
+
+class PasskeySignIn(BaseModel):
+    challenge_id: str = Field(max_length=64)
+    response: dict[str, Any]
+
+
+class PasskeyAdd(BaseModel):
+    challenge_id: str = Field(max_length=64)
+    response: dict[str, Any]
+    name: str = Field(default="", max_length=passkeys.MAX_NAME)
+
+
+class PasskeyOut(BaseModel):
+    id: str
+    name: str
+    rp_id: str
+    created_at: str
+    last_used_at: str | None
+
+
+def passkey_party(request: Request) -> passkeys.Party:
+    """The hostname passkeys belong to, or 409 explaining why this server can't use them."""
+    try:
+        return passkeys.party_for(public_origin(request))
+    except passkeys.PasskeyError as exc:
+        raise ApiProblem(409, "Passkeys unavailable", str(exc)) from None
+
+
+def perform_passkey_sign_in(
+    request: Request, response: Response, challenge_id: str, credential: Any
+) -> str:
+    """The passkey sign-in flow, shared by the API and the web UI. Returns the username."""
+    db = _db(request)
+    if auth.setup_required(db):
+        raise ApiProblem(503, "Setup required", "finish first-run setup before signing in")
+    party = passkey_party(request)
+    check_origin(request, party.origin, required=False)
+    limiter: auth.AttemptLimiter = request.app.state.login_limiter
+    client = _client(request)
+    try:
+        limiter.check(client)
+    except auth.RateLimited as exc:
+        raise _rate_limited(exc) from None
+    try:
+        user_id = passkeys.sign_in(db, party, challenge_id, credential)
+    except passkeys.PasskeyError as exc:
+        limiter.record(client)
+        raise ApiProblem(401, "Sign-in failed", str(exc)) from None
+    _set_session_cookie(response, auth.create_session(db, user_id), party.origin)
+    with db.connect() as conn:
+        return conn.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()[0]
+
+
+@public.post("/auth/passkey/options")
+def passkey_sign_in_options(request: Request) -> PasskeyOptions:
+    """Start signing in with a passkey. No username is needed: the passkey says who."""
+    db = _db(request)
+    if auth.setup_required(db):
+        raise ApiProblem(503, "Setup required", "finish first-run setup before signing in")
+    party = passkey_party(request)
+    check_origin(request, party.origin, required=False)
+    limiter: auth.AttemptLimiter = request.app.state.passkey_start_limiter
+    client = _client(request)
+    try:
+        limiter.check(client)
+    except auth.RateLimited as exc:
+        raise _rate_limited(exc) from None
+    limiter.record(client)
+    challenge_id, options = passkeys.sign_in_options(db, party)
+    return PasskeyOptions(challenge_id=challenge_id, options=options)
+
+
+@public.post("/auth/passkey")
+def passkey_sign_in(body: PasskeySignIn, request: Request, response: Response) -> SignedIn:
+    """Finish signing in with the browser's passkey response."""
+    return SignedIn(
+        username=perform_passkey_sign_in(request, response, body.challenge_id, body.response)
+    )
+
+
+@protected.get("/passkeys", tags=["sign-in"])
+def list_passkeys(request: Request, user: CurrentUser) -> list[PasskeyOut]:
+    return [PasskeyOut(**p) for p in passkeys.list_passkeys(_db(request), user.user_id)]
+
+
+@protected.post("/passkeys/options", tags=["sign-in"])
+def add_passkey_options(request: Request, user: CurrentUser) -> PasskeyOptions:
+    """Start adding a passkey for the signed-in user."""
+    party = passkey_party(request)
+    try:
+        challenge_id, options = passkeys.registration_options(
+            _db(request), party, user.user_id, user.username
+        )
+    except passkeys.PasskeyError as exc:
+        raise ApiProblem(409, "Can't add a passkey", str(exc)) from None
+    return PasskeyOptions(challenge_id=challenge_id, options=options)
+
+
+@protected.post("/passkeys", status_code=status.HTTP_201_CREATED, tags=["sign-in"])
+def add_passkey(body: PasskeyAdd, request: Request, user: CurrentUser) -> PasskeyOut:
+    """Save the passkey the browser just created."""
+    db = _db(request)
+    party = passkey_party(request)
+    try:
+        added = passkeys.register(
+            db, party, user.user_id, body.challenge_id, body.response, body.name
+        )
+    except passkeys.PasskeyError as exc:
+        raise ApiProblem(400, "Passkey not added", str(exc)) from None
+    return next(PasskeyOut(**p) for p in passkeys.list_passkeys(db, user.user_id)
+                if p["id"] == added["id"])  # fmt: skip
+
+
+@protected.delete(
+    "/passkeys/{passkey_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["sign-in"]
+)
+def remove_passkey(passkey_id: str, request: Request, user: CurrentUser) -> None:
+    """Remove a passkey. Password sign-in always remains."""
+    if not passkeys.remove(_db(request), user.user_id, passkey_id):
+        raise ApiProblem(404, "Passkey not found")

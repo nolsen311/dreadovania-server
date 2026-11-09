@@ -18,6 +18,15 @@ There are three ways to get there. In all of them:
 - **Changing the hostname later invalidates passkeys**, because each passkey
   belongs to one hostname. Password sign-in keeps working.
 
+## Passkeys
+
+Once the server is at its HTTPS hostname, open **Account** and press **Add a
+passkey**. Your phone, computer or password manager saves it, and the sign-in
+page then offers it: tap **Sign in with a passkey**, or pick it from the
+username field's suggestions. Each passkey is listed on the Account page, where
+you can remove it. Your password always keeps working, so a lost phone never
+locks you out.
+
 ## 1. Your own certificate files (the server speaks HTTPS)
 
 Use this if you already get certificates from certbot, acme.sh, your router's

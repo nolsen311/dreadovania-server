@@ -92,4 +92,4 @@ details > summary:hover { text-decoration: underline; }
 [hidden] { display: none !important; }
 
 /* Narrow phones: keep the icon, drop the wordmark so the nav fits on one line. */
-@media (max-width: 26rem) { .brand-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } }
+@media (max-width: 26rem) { .bar nav { gap: .7rem; } .brand-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } }
