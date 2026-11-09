@@ -1,8 +1,9 @@
 """Runtime configuration, read from ``DREADOVANIA_*`` environment variables."""
 
+import ipaddress
 from pathlib import Path
 
-from pydantic import AnyHttpUrl, Field
+from pydantic import AnyHttpUrl, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,6 +31,17 @@ class Settings(BaseSettings):
     # Passkeys are bound to this origin (ADR 0004/0005). Set by the setup wizard later.
     public_url: AnyHttpUrl | None = None
 
+    # HTTPS (ADR 0005): mount the certificate files and point at them. Renewed
+    # files are picked up without a restart. Without them the server speaks HTTP,
+    # for use behind a TLS reverse proxy or on a LAN without passkeys.
+    tls_cert_file: Path | None = None  # fullchain.pem
+    tls_key_file: Path | None = None  # privkey.pem
+
+    # Reverse proxies whose X-Forwarded-For/-Proto headers are believed, as
+    # comma-separated addresses or networks (e.g. "172.18.0.0/16"). Empty trusts
+    # none, so a client can't spoof its address or scheme.
+    trusted_proxies: str = ""
+
     # Job runner (ADR 0011 §2).
     job_timeout_seconds: float = Field(default=600, gt=0)
     # Patching reads and rewrites several GB, so it gets longer (ADR 0013 §2).
@@ -39,3 +51,27 @@ class Settings(BaseSettings):
     @property
     def romfs_path(self) -> Path:
         return self.romfs_dir if self.romfs_dir is not None else self.data_dir / "romfs"
+
+    @field_validator("trusted_proxies")
+    @classmethod
+    def _check_proxies(cls, value: str) -> str:
+        for entry in value.split(","):
+            if entry.strip():
+                try:
+                    ipaddress.ip_network(entry.strip(), strict=False)
+                except ValueError:
+                    raise ValueError(
+                        f"{entry.strip()!r} isn't an IP address or network, e.g. 172.18.0.0/16"
+                    ) from None
+        return value
+
+    @property
+    def trusted_proxy_list(self) -> list[str]:
+        """Normalised for uvicorn, which ignores a network with host bits set."""
+        out = []
+        for entry in self.trusted_proxies.split(","):
+            if entry.strip():
+                net = ipaddress.ip_network(entry.strip(), strict=False)
+                single = net.prefixlen == net.max_prefixlen
+                out.append(str(net.network_address) if single else str(net))
+        return out

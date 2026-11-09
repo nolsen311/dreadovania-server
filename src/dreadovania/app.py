@@ -2,12 +2,15 @@
 
 import asyncio
 import contextlib
+import ipaddress
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from importlib.metadata import version
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from dreadovania import __version__, auth, problems, routes_api, routes_auth, ui
@@ -104,7 +107,7 @@ def _announce_setup_link(settings: Settings, token: str) -> None:
     base = (
         auth.origin_of(str(settings.public_url))
         if settings.public_url is not None
-        else f"http://<this-server>:{settings.port}"
+        else f"{'https' if settings.tls_cert_file else 'http'}://<this-server>:{settings.port}"
     )
     lifetime = int(auth.SETUP_TOKEN_LIFETIME.total_seconds() // 60)
     log.warning(
@@ -112,6 +115,31 @@ def _announce_setup_link(settings: Settings, token: str) -> None:
         " restart the server for a new one):\n\n    %s/setup#token=%s\n%s",
         "=" * 72, lifetime, base, token, "=" * 72,
     )  # fmt: skip
+
+
+def _is_ip(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return False
+    return True
+
+
+def _hostname_redirect(request: Request) -> str | None:
+    """Where to send a request made to an IP address, if the server has a hostname."""
+    requested = request.url.hostname
+    if not requested or not _is_ip(requested):
+        return None
+    if getattr(request.app.state, "db", None) is None:
+        return None  # not started
+    public = routes_auth.public_origin(request)  # DREADOVANIA_PUBLIC_URL, else the wizard's
+    if public is None:
+        return None
+    public_host = urlsplit(public).hostname
+    if not public_host or _is_ip(public_host):
+        return None  # the server is set up to be used by address
+    query = f"?{request.url.query}" if request.url.query else ""
+    return f"{public}{request.url.path}{query}"
 
 
 def create_app(
@@ -140,6 +168,22 @@ def create_app(
     app.include_router(routes_auth.protected)
     app.include_router(routes_api.router)
     ui.install(app)
+
+    @app.middleware("http")
+    async def hostname_only(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """Send a browser that opened the server by IP address to its hostname (ADR 0005).
+
+        Passkeys and cookies belong to the hostname, so an IP address can't sign
+        in. Only page loads (GET/HEAD) are redirected; /healthz stays reachable
+        by address for Docker's health check.
+        """
+        if request.method in ("GET", "HEAD") and request.url.path != "/healthz":
+            target = _hostname_redirect(request)
+            if target is not None:
+                return RedirectResponse(target, status_code=308)
+        return await call_next(request)
 
     @app.middleware("http")
     async def security_headers(
