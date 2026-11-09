@@ -71,6 +71,7 @@ def renew(cert: Path, key: Path, serial: int, tmp: Path) -> None:
 
 def client_context(*certs: Path) -> ssl.SSLContext:
     context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     for cert in certs:
         context.load_verify_locations(cadata=cert.read_text())
     return context
