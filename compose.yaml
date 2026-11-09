@@ -10,12 +10,20 @@ services:
       # The address you will use in the browser; required for passkeys.
       # DREADOVANIA_PUBLIC_URL: https://dread.home.example.com
       DREADOVANIA_DATA_DIR: /data
+      # HTTPS from your own certificate files (docs/https.md). Renewed files are
+      # picked up without a restart.
+      # DREADOVANIA_TLS_CERT_FILE: /certs/fullchain.pem
+      # DREADOVANIA_TLS_KEY_FILE: /certs/privkey.pem
+      # Behind a reverse proxy: its address or network, so X-Forwarded-* is believed.
+      # DREADOVANIA_TRUSTED_PROXIES: 172.18.0.0/16
     volumes:
       # Seeds and server state. Must be writable by UID/GID 10001.
       - ./data:/data
       # Your own game files for patching: an extracted RomFS (version 1.0.0 or
       # 2.1.0), readable by UID 10001. See docs/game-files.md.
       # - /path/to/dread-romfs:/data/romfs:ro
+      # Certificate files for HTTPS, readable by UID 10001 (docs/https.md).
+      # - /path/to/certs:/certs:ro
     user: "10001:10001"
     read_only: true
     tmpfs:

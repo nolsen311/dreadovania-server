@@ -133,6 +133,7 @@ Splitting the phases this way lets Phase 1 ship with zero copyrighted input.
   are narrowly scoped (list, download, generate from preset), revocable, and tied to `owner_id`.
 - **TLS:** see [ADR 0005](adr/0005-tls-lets-encrypt.md). The app needs a configured public URL
   and a trusted-proxy allowlist, and redirects requests by IP address to the configured hostname.
+  Setup and recipes: [docs/https.md](https.md).
 - **Uploads:** treated as hostile. Size limits, safe archive extraction (no zip-slip),
   and nothing from an upload is ever executed.
 - **Secrets:** the ftpd password is stored server-side, never logged and never shown back in the UI.
