@@ -33,6 +33,29 @@
   {% endif %}
 </section>
 <section class="card stack">
+  <h2>Switch app</h2>
+  <p class="muted">Pair the Dreadovania app on your Switch with this account. It can list,
+    generate and patch seeds; it can't change your account, Switches or game files.</p>
+  {% if devices %}
+    <ul class="seeds">
+      {% for d in devices %}
+        <li class="row">
+          <span><strong>{{ d.name }}</strong><br>
+            <small class="muted">Paired {{ d.created_at[:10] }}{% if d.last_used_at %} · last used {{ d.last_used_at[:10] }}{% endif %}{% if d.last_ip %} from {{ d.last_ip }}{% endif %}</small></span>
+          <form method="post" action="/account/devices/{{ d.id }}/delete" hx-post="/account/devices/{{ d.id }}/delete" hx-confirm="Remove &quot;{{ d.name }}&quot;? The app on it will have to be paired again." class="inline">
+            <button type="submit" class="danger">Remove</button>
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  <div id="pairing">
+    <form method="post" action="/account/devices/code" hx-post="/account/devices/code" hx-target="#pairing" hx-swap="innerHTML">
+      <button type="submit" class="primary">Pair a Switch</button>
+    </form>
+  </div>
+</section>
+<section class="card stack">
   <p>Signed in as <strong>{{ user.username }}</strong>.</p>
   <form method="post" action="/logout" hx-post="/logout">
     <button type="submit">Sign out</button>

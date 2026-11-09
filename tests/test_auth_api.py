@@ -39,6 +39,7 @@ def protected_routes(client: TestClient) -> list[tuple[str, str]]:
     """Every API route except the deliberately public ones."""
     public = {("GET", "/api/v1/setup"), ("POST", "/api/v1/setup"), ("POST", "/api/v1/auth/login"),
               ("POST", "/api/v1/auth/passkey/options"), ("POST", "/api/v1/auth/passkey"),
+              ("POST", "/api/v1/devices/pair"),
               ("GET", "/api/v1/info")}  # fmt: skip
     routes = []
     for path, ops in client.app.openapi()["paths"].items():
@@ -68,6 +69,8 @@ def test_before_setup_everything_but_setup_is_unavailable(client) -> None:
     assert client.post("/api/v1/auth/passkey/options").status_code == 503
     body = {"challenge_id": "x", "response": {}}
     assert client.post("/api/v1/auth/passkey", json=body).status_code == 503
+    pairing = client.post("/api/v1/devices/pair", json={"code": "ABCD-EFGH"})
+    assert pairing.status_code == 503
     for method, path in protected_routes(client):
         response = client.request(method, path, headers=SAME_SITE)
         assert response.status_code == 503, (method, path)

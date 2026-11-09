@@ -164,6 +164,7 @@ def create_app(
     app.state.login_limiter = auth.AttemptLimiter(**routes_auth.LOGIN_LIMIT)
     app.state.setup_limiter = auth.AttemptLimiter(**routes_auth.SETUP_LIMIT)
     app.state.passkey_start_limiter = auth.AttemptLimiter(**routes_auth.PASSKEY_START_LIMIT)
+    app.state.pair_limiter = auth.AttemptLimiter(**routes_auth.PAIR_LIMIT)
     problems.install(app)
     app.include_router(routes_auth.public)
     app.include_router(routes_auth.protected)

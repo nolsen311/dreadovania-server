@@ -1,0 +1,11 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{# A one-time pairing code for the Switch app (ADR 0017). #}
+<div class="stack">
+  <p>In the Dreadovania app on your Switch, enter:</p>
+  <p class="pairing-code" aria-label="Pairing code">{{ code }}</p>
+  {% if server_url %}<p class="muted"><small>Server address: <code>{{ server_url }}</code></small></p>{% endif %}
+  <p class="muted"><small>The code works once, for {{ minutes }} minutes. Asking for a new one replaces it.</small></p>
+  <form hx-post="/account/devices/code" hx-target="#pairing" hx-swap="innerHTML">
+    <button type="submit">New code</button>
+  </form>
+</div>

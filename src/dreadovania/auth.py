@@ -195,6 +195,7 @@ class Session:
     user_id: str
     username: str
     renewed: bool  # True when the expiry was just pushed forward (re-send the cookie)
+    device_id: str | None = None  # set when a paired device's token is used (ADR 0017)
 
 
 def create_session(db: Database, user_id: str) -> str:

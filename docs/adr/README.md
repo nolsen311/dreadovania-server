@@ -22,3 +22,4 @@ supersedes the old one; don't rewrite history.
 | [0014](0014-release-by-comment.md) | Release with a `/release` comment | Accepted (amended by 0015) |
 | [0015](0015-release-app.md) | Release tags are created by the maintainer's release app | Accepted |
 | [0016](0016-phase3-send-to-switch.md) | Phase 3 plan: sending a patched seed to the Switch over FTP | Accepted |
+| [0017](0017-device-pairing.md) | Pairing the Switch app: codes, device tokens and what they may do | Accepted |

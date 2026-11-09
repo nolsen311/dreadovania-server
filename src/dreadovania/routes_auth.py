@@ -12,7 +12,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, Field
 
-from dreadovania import auth, passkeys
+from dreadovania import auth, devices, passkeys
 from dreadovania.config import Settings
 from dreadovania.db import Database
 from dreadovania.problems import ApiProblem
@@ -26,6 +26,8 @@ LOGIN_LIMIT = {"per_client": 10, "overall": 100, "window_seconds": 15 * 60}
 SETUP_LIMIT = {"per_client": 10, "overall": 30, "window_seconds": 15 * 60}
 # Starting a passkey sign-in stores a challenge, so it is limited too. Every page
 # load of the sign-in page starts one (for passkey autofill), hence the higher limit.
+# Exchanging a pairing code is a guess at a secret, so it is limited like sign-in.
+PAIR_LIMIT = {"per_client": 10, "overall": 50, "window_seconds": 15 * 60}
 PASSKEY_START_LIMIT = {"per_client": 60, "overall": 600, "window_seconds": 15 * 60}
 
 
@@ -96,10 +98,38 @@ def _rate_limited(exc: auth.RateLimited) -> ApiProblem:
 # ---- the protection dependency ---------------------------------------------------------
 
 
+def _device_session(request: Request, header: str) -> auth.Session:
+    """A paired device's bearer token: only for the routes in DEVICE_ROUTES (ADR 0017).
+
+    No Origin check: a bearer token is never sent automatically by a browser,
+    so a cross-site page can't use one.
+    """
+    scheme, _, token = header.partition(" ")
+    device = (
+        devices.resolve_token(_db(request), token.strip(), _client(request))
+        if scheme.lower() == "bearer"
+        else None
+    )
+    if device is None:
+        raise ApiProblem(
+            401, "Sign-in required", "this device isn't paired, or was removed: pair it again",
+            headers={"WWW-Authenticate": "Bearer"},
+        )  # fmt: skip
+    route = request.scope.get("route")
+    if (request.method, getattr(route, "path", None)) not in devices.DEVICE_ROUTES:
+        raise ApiProblem(403, "Not allowed for devices", "sign in to the web app to do this")
+    return auth.Session(
+        user_id=device.owner_id, username=device.username, renewed=False, device_id=device.id
+    )
+
+
 def require_user(request: Request, response: Response) -> auth.Session:
     db = _db(request)
     if auth.setup_required(db):
         raise ApiProblem(503, "Setup required", "finish first-run setup before using the server")
+    header = request.headers.get("authorization")
+    if header:
+        return _device_session(request, header)
     token = request.cookies.get(COOKIE)
     session = auth.resolve_session(db, token) if token else None
     if session is None:
@@ -377,3 +407,98 @@ def remove_passkey(passkey_id: str, request: Request, user: CurrentUser) -> None
     """Remove a passkey. Password sign-in always remains."""
     if not passkeys.remove(_db(request), user.user_id, passkey_id):
         raise ApiProblem(404, "Passkey not found")
+
+
+# ---- the Switch app: pairing and devices (ADR 0017) ---------------------------------------
+
+
+class PairingCode(BaseModel):
+    """Type this code into the Switch app. Valid for 5 minutes, once."""
+
+    code: str
+    expires_at: str
+
+
+class PairRequest(BaseModel):
+    code: str = Field(max_length=32)
+    name: str = Field(default="", max_length=devices.MAX_NAME)
+
+
+class Paired(BaseModel):
+    """Keep ``token`` secret; send it as ``Authorization: Bearer <token>``. It is shown once."""
+
+    device_id: str
+    name: str
+    token: str
+
+
+class DeviceOut(BaseModel):
+    id: str
+    name: str
+    created_at: str
+    last_used_at: str | None
+    last_ip: str | None
+
+
+def _browser_only(user: auth.Session) -> None:
+    if user.device_id is not None:  # pragma: no cover - DEVICE_ROUTES already refuses these
+        raise ApiProblem(403, "Not allowed for devices", "sign in to the web app to do this")
+
+
+@protected.post("/devices/pairing-code", tags=["devices"])
+def create_pairing_code(request: Request, user: CurrentUser) -> PairingCode:
+    """A one-time code for pairing the Switch app with this account."""
+    _browser_only(user)
+    code, expires = devices.new_pairing_code(_db(request), user.user_id)
+    return PairingCode(code=code, expires_at=expires.isoformat())
+
+
+@public.post("/devices/pair", status_code=status.HTTP_201_CREATED, tags=["devices"])
+def pair_device(body: PairRequest, request: Request) -> Paired:
+    """Exchange a pairing code for a device token. Called by the Switch app."""
+    db = _db(request)
+    if auth.setup_required(db):
+        raise ApiProblem(503, "Setup required", "finish first-run setup first")
+    limiter: auth.AttemptLimiter = request.app.state.pair_limiter
+    client = _client(request)
+    try:
+        limiter.check(client)
+    except auth.RateLimited as exc:
+        raise _rate_limited(exc) from None
+    try:
+        device, token = devices.pair(db, body.code, body.name, client)
+    except devices.DeviceError as exc:
+        limiter.record(client)
+        raise ApiProblem(400, "Pairing failed", str(exc)) from None
+    return Paired(device_id=device.id, name=device.name, token=token)
+
+
+@protected.get("/devices", tags=["devices"])
+def list_devices(request: Request, user: CurrentUser) -> list[DeviceOut]:
+    return [DeviceOut(**d) for d in devices.list_devices(_db(request), user.user_id)]
+
+
+@protected.get("/devices/me", tags=["devices"])
+def current_device(request: Request, user: CurrentUser) -> DeviceOut:
+    """The device making this request (for the Switch app to check its pairing)."""
+    found = (
+        devices.get_device(_db(request), user.user_id, user.device_id) if user.device_id else None
+    )
+    if found is None:
+        raise ApiProblem(404, "Not a device", "this request isn't from a paired device")
+    return DeviceOut(**found)
+
+
+@protected.delete("/devices/me", status_code=status.HTTP_204_NO_CONTENT, tags=["devices"])
+def unpair_self(request: Request, user: CurrentUser) -> None:
+    """Unpair the device making this request; its token stops working."""
+    if user.device_id is None or not devices.remove(_db(request), user.user_id, user.device_id):
+        raise ApiProblem(404, "Not a device", "this request isn't from a paired device")
+
+
+@protected.delete("/devices/{device_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["devices"])
+def remove_device(device_id: str, request: Request, user: CurrentUser) -> None:
+    """Revoke a device: its token stops working at once."""
+    _browser_only(user)
+    if not devices.remove(_db(request), user.user_id, device_id):
+        raise ApiProblem(404, "Device not found")
