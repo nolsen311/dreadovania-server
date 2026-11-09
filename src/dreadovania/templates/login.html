@@ -2,13 +2,23 @@
 {% block title %}Sign in · Dreadovania{% endblock %}
 {% block content %}
 <h1>Sign in</h1>
+{% if not passkeys_unavailable %}
+<section class="card stack" id="passkey-sign-in">
+  <button type="button" class="primary" data-passkey-sign-in>Sign in with a passkey</button>
+  <p class="muted"><small>Uses the passkey saved on this device or in your password manager.</small></p>
+</section>
+{% endif %}
 <form method="post" action="/login" hx-post="/login" hx-target="#messages" class="card stack">
   <label>Username
-    <input name="username" required maxlength="64" autocomplete="username" autocapitalize="none" spellcheck="false">
+    {# "webauthn" lets the browser offer saved passkeys right in the username field. #}
+    <input name="username" required maxlength="64" autocomplete="username{% if not passkeys_unavailable %} webauthn{% endif %}" autocapitalize="none" spellcheck="false">
   </label>
   <label>Password
     <input name="password" type="password" required maxlength="1024" autocomplete="current-password">
   </label>
-  <button type="submit" class="primary">Sign in</button>
+  <button type="submit"{% if passkeys_unavailable %} class="primary"{% endif %}>Sign in with password</button>
 </form>
+{% if passkeys_unavailable %}
+<p class="muted"><small>Passkey sign-in is off: {{ passkeys_unavailable }}</small></p>
+{% endif %}
 {% endblock %}

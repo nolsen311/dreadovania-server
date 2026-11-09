@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from dreadovania import auth
+from dreadovania import auth, passkeys
 from dreadovania.jobs import CannotPatch, CannotSend, QueueFull
 from dreadovania.problems import ApiProblem
 from dreadovania.romfs import SUPPORTED_VERSIONS
@@ -133,7 +133,16 @@ async def setup_submit(request: Request) -> Response:
 def login_page(request: Request) -> Response:
     if auth.setup_required(request.app.state.db):
         return go(request, "/setup")
-    return render(request, "login.html")
+    return render(request, "login.html", passkeys_unavailable=_passkeys_unavailable(request))
+
+
+def _passkeys_unavailable(request: Request) -> str | None:
+    """Why this server can't use passkeys, or None when it can."""
+    try:
+        passkeys.party_for(public_origin(request))
+    except passkeys.PasskeyError as exc:
+        return str(exc)
+    return None
 
 
 @router.post("/login")
@@ -440,6 +449,26 @@ def switch_delete(switch_id: str, request: Request) -> Response:
     user = page_session(request)
     request.app.state.switches.delete(user.user_id, switch_id)
     return go(request, "/switches")
+
+
+# ---- account and passkeys (ADR 0004) -------------------------------------------------------------
+
+
+@router.get("/account")
+def account_page(request: Request) -> Response:
+    user = page_session(request)
+    return render(
+        request, "account.html", user=user,
+        passkeys=passkeys.list_passkeys(request.app.state.db, user.user_id),
+        passkeys_unavailable=_passkeys_unavailable(request),
+    )  # fmt: skip
+
+
+@router.post("/account/passkeys/{passkey_id}/delete")
+def passkey_delete(passkey_id: str, request: Request) -> Response:
+    user = page_session(request)
+    passkeys.remove(request.app.state.db, user.user_id, passkey_id)
+    return go(request, "/account")
 
 
 # ---- presets ----------------------------------------------------------------------------------

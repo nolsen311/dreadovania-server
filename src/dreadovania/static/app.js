@@ -224,3 +224,124 @@ function say(message) {
   const box = document.getElementById("messages");
   box.replaceChildren(Object.assign(document.createElement("p"), { className: "error", textContent: message }));
 }
+
+// ---- passkeys (ADR 0004) ----------------------------------------------------------------
+// The server sends WebAuthn options as JSON (binary fields in base64url) and expects
+// the browser's response back in the same form.
+
+const b64url = {
+  decode: (text) => Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)).buffer,
+  encode: (buffer) => btoa(String.fromCharCode(...new Uint8Array(buffer))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""),
+};
+
+function creationOptions(json) {
+  if (PublicKeyCredential.parseCreationOptionsFromJSON) return PublicKeyCredential.parseCreationOptionsFromJSON(json);
+  return {
+    ...json,
+    challenge: b64url.decode(json.challenge),
+    user: { ...json.user, id: b64url.decode(json.user.id) },
+    excludeCredentials: (json.excludeCredentials || []).map((c) => ({ ...c, id: b64url.decode(c.id) })),
+  };
+}
+
+function requestOptions(json) {
+  if (PublicKeyCredential.parseRequestOptionsFromJSON) return PublicKeyCredential.parseRequestOptionsFromJSON(json);
+  return {
+    ...json,
+    challenge: b64url.decode(json.challenge),
+    allowCredentials: (json.allowCredentials || []).map((c) => ({ ...c, id: b64url.decode(c.id) })),
+  };
+}
+
+function credentialJSON(credential) {
+  if (credential.toJSON) return credential.toJSON();
+  const r = credential.response;
+  const response = { clientDataJSON: b64url.encode(r.clientDataJSON) };
+  if (r.attestationObject) {
+    response.attestationObject = b64url.encode(r.attestationObject);
+    response.transports = r.getTransports ? r.getTransports() : [];
+  } else {
+    response.authenticatorData = b64url.encode(r.authenticatorData);
+    response.signature = b64url.encode(r.signature);
+    if (r.userHandle) response.userHandle = b64url.encode(r.userHandle);
+  }
+  return {
+    id: credential.id, rawId: b64url.encode(credential.rawId), type: credential.type, response,
+    clientExtensionResults: credential.getClientExtensionResults(),
+    authenticatorAttachment: credential.authenticatorAttachment,
+  };
+}
+
+function passkeyProblem(error) {
+  // The user closing the prompt isn't worth an error message.
+  if (error.name === "NotAllowedError" || error.name === "AbortError") return null;
+  if (error.name === "InvalidStateError") return "This device already has a passkey for this server.";
+  return error.message || "The passkey didn't work.";
+}
+
+async function passkeySignIn(mediation, signal) {
+  const start = await api("POST", "/api/v1/auth/passkey/options");
+  const credential = await navigator.credentials.get({
+    publicKey: requestOptions(start.options), mediation, signal,
+  });
+  await api("POST", "/api/v1/auth/passkey", { challenge_id: start.challenge_id, response: credentialJSON(credential) });
+  location.assign("/");
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  const supported = !!window.PublicKeyCredential;
+  const button = document.querySelector("[data-passkey-sign-in]");
+  if (button) {
+    if (!supported) {
+      document.getElementById("passkey-sign-in").hidden = true;
+    } else {
+      // Offer saved passkeys in the username field's autofill, where the browser can.
+      let autofill = null;
+      if (await PublicKeyCredential.isConditionalMediationAvailable?.()) {
+        autofill = new AbortController();
+        passkeySignIn("conditional", autofill.signal).catch((error) => {
+          const message = passkeyProblem(error);
+          if (message) say(message);
+        });
+      }
+      button.addEventListener("click", async () => {
+        autofill?.abort(); // only one passkey prompt at a time
+        button.disabled = true;
+        try {
+          await passkeySignIn("optional");
+        } catch (error) {
+          const message = passkeyProblem(error);
+          if (message) say(message);
+        } finally {
+          button.disabled = false;
+        }
+      });
+    }
+  }
+
+  const add = document.getElementById("passkey-add");
+  if (add) {
+    if (!supported) {
+      add.replaceChildren(Object.assign(document.createElement("p"), { textContent: "This browser can't create passkeys." }));
+      return;
+    }
+    add.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const submit = add.querySelector("button");
+      submit.disabled = true;
+      try {
+        const start = await api("POST", "/api/v1/passkeys/options");
+        const credential = await navigator.credentials.create({ publicKey: creationOptions(start.options) });
+        await api("POST", "/api/v1/passkeys", {
+          challenge_id: start.challenge_id, response: credentialJSON(credential), name: add.elements.name.value,
+        });
+        location.reload();
+      } catch (error) {
+        const message = passkeyProblem(error);
+        if (message) say(message);
+      } finally {
+        submit.disabled = false;
+      }
+    });
+  }
+});

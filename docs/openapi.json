@@ -294,6 +294,112 @@
         "title": "ModOut",
         "type": "object"
       },
+      "PasskeyAdd": {
+        "properties": {
+          "challenge_id": {
+            "maxLength": 64,
+            "title": "Challenge Id",
+            "type": "string"
+          },
+          "name": {
+            "default": "",
+            "maxLength": 60,
+            "title": "Name",
+            "type": "string"
+          },
+          "response": {
+            "additionalProperties": true,
+            "title": "Response",
+            "type": "object"
+          }
+        },
+        "required": [
+          "challenge_id",
+          "response"
+        ],
+        "title": "PasskeyAdd",
+        "type": "object"
+      },
+      "PasskeyOptions": {
+        "description": "Pass ``options`` to the browser's WebAuthn call, then send back its response\nwith ``challenge_id``. Valid for 5 minutes, once.",
+        "properties": {
+          "challenge_id": {
+            "title": "Challenge Id",
+            "type": "string"
+          },
+          "options": {
+            "additionalProperties": true,
+            "title": "Options",
+            "type": "object"
+          }
+        },
+        "required": [
+          "challenge_id",
+          "options"
+        ],
+        "title": "PasskeyOptions",
+        "type": "object"
+      },
+      "PasskeyOut": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rp_id": {
+            "title": "Rp Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "rp_id",
+          "created_at",
+          "last_used_at"
+        ],
+        "title": "PasskeyOut",
+        "type": "object"
+      },
+      "PasskeySignIn": {
+        "properties": {
+          "challenge_id": {
+            "maxLength": 64,
+            "title": "Challenge Id",
+            "type": "string"
+          },
+          "response": {
+            "additionalProperties": true,
+            "title": "Response",
+            "type": "object"
+          }
+        },
+        "required": [
+          "challenge_id",
+          "response"
+        ],
+        "title": "PasskeySignIn",
+        "type": "object"
+      },
       "PresetOut": {
         "properties": {
           "builtin": {
@@ -1292,6 +1398,70 @@
         ]
       }
     },
+    "/api/v1/auth/passkey": {
+      "post": {
+        "description": "Finish signing in with the browser's passkey response.",
+        "operationId": "passkey_sign_in_api_v1_auth_passkey_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasskeySignIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignedIn"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Passkey Sign In",
+        "tags": [
+          "sign-in"
+        ]
+      }
+    },
+    "/api/v1/auth/passkey/options": {
+      "post": {
+        "description": "Start signing in with a passkey. No username is needed: the passkey says who.",
+        "operationId": "passkey_sign_in_options_api_v1_auth_passkey_options_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyOptions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Passkey Sign In Options",
+        "tags": [
+          "sign-in"
+        ]
+      }
+    },
     "/api/v1/auth/session": {
       "get": {
         "description": "Who is signed in. Returns 401 when nobody is.",
@@ -1448,6 +1618,129 @@
         "summary": "Job Events",
         "tags": [
           "jobs"
+        ]
+      }
+    },
+    "/api/v1/passkeys": {
+      "get": {
+        "operationId": "list_passkeys_api_v1_passkeys_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PasskeyOut"
+                  },
+                  "title": "Response List Passkeys Api V1 Passkeys Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Passkeys",
+        "tags": [
+          "sign-in"
+        ]
+      },
+      "post": {
+        "description": "Save the passkey the browser just created.",
+        "operationId": "add_passkey_api_v1_passkeys_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasskeyAdd"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Passkey",
+        "tags": [
+          "sign-in"
+        ]
+      }
+    },
+    "/api/v1/passkeys/options": {
+      "post": {
+        "description": "Start adding a passkey for the signed-in user.",
+        "operationId": "add_passkey_options_api_v1_passkeys_options_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyOptions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Add Passkey Options",
+        "tags": [
+          "sign-in"
+        ]
+      }
+    },
+    "/api/v1/passkeys/{passkey_id}": {
+      "delete": {
+        "description": "Remove a passkey. Password sign-in always remains.",
+        "operationId": "remove_passkey_api_v1_passkeys__passkey_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "passkey_id",
+            "required": true,
+            "schema": {
+              "title": "Passkey Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Passkey",
+        "tags": [
+          "sign-in"
         ]
       }
     },
