@@ -130,7 +130,7 @@ Splitting the phases this way lets Phase 1 ship with zero copyrighted input.
   - A 90-day session cookie (`Secure`, `HttpOnly`, `SameSite=Lax`) renews as you use it.
   - Logins are rate-limited, and forms are protected against CSRF.
 - **Device tokens:** pairing code → long-lived device token. Only a hash is stored. Tokens
-  are narrowly scoped (list, download, generate from preset), revocable, and tied to `owner_id`.
+  are narrowly scoped (list, download, generate from preset), revocable, and tied to `owner_id`. Details: [ADR 0017](adr/0017-device-pairing.md).
 - **TLS:** see [ADR 0005](adr/0005-tls-lets-encrypt.md). The app needs a configured public URL
   and a trusted-proxy allowlist, and redirects requests by IP address to the configured hostname.
   Setup and recipes: [docs/https.md](https.md).

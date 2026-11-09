@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from dreadovania import auth, passkeys
+from dreadovania import auth, devices, passkeys
 from dreadovania.jobs import CannotPatch, CannotSend, QueueFull
 from dreadovania.problems import ApiProblem
 from dreadovania.romfs import SUPPORTED_VERSIONS
@@ -461,7 +461,26 @@ def account_page(request: Request) -> Response:
         request, "account.html", user=user,
         passkeys=passkeys.list_passkeys(request.app.state.db, user.user_id),
         passkeys_unavailable=_passkeys_unavailable(request),
+        devices=devices.list_devices(request.app.state.db, user.user_id),
+        server_url=public_origin(request),
     )  # fmt: skip
+
+
+@router.post("/account/devices/code")
+def device_code(request: Request) -> Response:
+    user = page_session(request)
+    code, _expires = devices.new_pairing_code(request.app.state.db, user.user_id)
+    return render(
+        request, "_pairing_code.html", code=code, minutes=int(devices.CODE_LIFETIME.seconds // 60),
+        server_url=public_origin(request),
+    )  # fmt: skip
+
+
+@router.post("/account/devices/{device_id}/delete")
+def device_delete(device_id: str, request: Request) -> Response:
+    user = page_session(request)
+    devices.remove(request.app.state.db, user.user_id, device_id)
+    return go(request, "/account")
 
 
 @router.post("/account/passkeys/{passkey_id}/delete")
