@@ -251,6 +251,68 @@
         "title": "LoginRequest",
         "type": "object"
       },
+      "ModFile": {
+        "properties": {
+          "path": {
+            "description": "Where it goes on the SD card, e.g. atmosphere/contents/\u2026",
+            "title": "Path",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "size",
+          "sha256"
+        ],
+        "title": "ModFile",
+        "type": "object"
+      },
+      "ModManifest": {
+        "description": "The files in /mod.tar, in the same order. Check each one before installing.",
+        "properties": {
+          "file_count": {
+            "title": "File Count",
+            "type": "integer"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/ModFile"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "seed_id": {
+            "title": "Seed Id",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "tar_bytes": {
+            "description": "The exact length of /mod.tar",
+            "title": "Tar Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "seed_id",
+          "file_count",
+          "size_bytes",
+          "tar_bytes",
+          "files"
+        ],
+        "title": "ModManifest",
+        "type": "object"
+      },
       "ModOut": {
         "description": "A seed's patched files, for Atmosphere (ADR 0013 \u00a73).",
         "properties": {
@@ -2669,6 +2731,45 @@
         ]
       }
     },
+    "/api/v1/seeds/{seed_id}/mod.tar": {
+      "get": {
+        "description": "The patched seed as one uncompressed ustar archive, for the Switch app (ADR 0018).\n\nMembers are `atmosphere/\u2026`, in the order /mod/manifest lists them.",
+        "operationId": "download_mod_tar_api_v1_seeds__seed_id__mod_tar_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "seed_id",
+            "required": true,
+            "schema": {
+              "title": "Seed Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/x-tar": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Mod Tar",
+        "tags": [
+          "patching"
+        ]
+      }
+    },
     "/api/v1/seeds/{seed_id}/mod.zip": {
       "get": {
         "description": "Download the patched seed as a zip. Extract it at the root of the SD card.\n\nIt contains `atmosphere/\u2026`, made from your own game files: don't share it.",
@@ -2703,6 +2804,49 @@
           }
         },
         "summary": "Download Mod",
+        "tags": [
+          "patching"
+        ]
+      }
+    },
+    "/api/v1/seeds/{seed_id}/mod/manifest": {
+      "get": {
+        "description": "The patched seed's files with their sizes and SHA-256, for the Switch app (ADR 0018).",
+        "operationId": "mod_files_api_v1_seeds__seed_id__mod_manifest_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "seed_id",
+            "required": true,
+            "schema": {
+              "title": "Seed Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModManifest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Mod Files",
         "tags": [
           "patching"
         ]

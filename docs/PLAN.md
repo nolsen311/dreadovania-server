@@ -200,3 +200,13 @@ Still open:
 2. How Dread save slots behave across different seeds. Randovania has a
    "separate save slots" cosmetic option for Dread, to expose with the other
    cosmetics (ADR 0016, "Later").
+
+## Later ideas (not scheduled)
+
+- **Accounts:** more than one user on a server (ADR 0004 is ready for it), so a
+  friend can pair their own Switch with their own account on your server, with
+  their own seeds. Today a second Switch pairs with the one account.
+- **Several servers in the Switch app:** remember each paired server and pick the
+  one for the current Wi-Fi network automatically (`dreadovania-nx`).
+- **Mods alongside seeds:** a library of other mods (e.g. suit colours) applied
+  with each seed, once overlap between mods can be handled sensibly.
