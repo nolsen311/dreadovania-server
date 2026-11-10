@@ -1,0 +1,15 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{# The Trick level tab (ADR 0019): every trick's level, from Randovania's Dread database. #}
+<p class="muted"><small>Minimal logic is on the <a href="?tab=generation">Generation</a> tab.</small></p>
+<fieldset class="stack">
+  <legend>Tricks</legend>
+  {% for t in tricks %}
+  <div class="setting">
+    <label>{{ t.name }}
+      <select name="{{ t.key }}">
+        {% for l in trick_levels %}<option value="{{ l.value }}" {% if l.value == t.level %}selected{% endif %}>{{ l.label }}</option>{% endfor %}
+      </select></label>
+    {% if t.description %}<small class="help">{{ t.description }}</small>{% endif %}
+  </div>
+  {% endfor %}
+</fieldset>

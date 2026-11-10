@@ -48,7 +48,8 @@ def test_every_dread_setting_is_editable_or_accounted_for() -> None:
     result = rdv_presets.coverage()
     assert result["missing"] == []  # a Randovania upgrade added a setting: handle it here
     names = {f.name for f in dataclasses.fields(DreadConfiguration)}
-    listed = set(rdv_presets.NOT_EDITABLE_YET) | set(rdv_presets.NOT_OFFERED)
+    # Top-level fields; a dotted entry is part of one (e.g. hints.specific_pickup_hints).
+    listed = {n for n in (*rdv_presets.NOT_EDITABLE_YET, *rdv_presets.NOT_OFFERED) if "." not in n}
     assert listed <= names  # nothing stale in the lists
     assert not listed & set(result["editable"])  # nothing listed that is now editable
     assert set(result["editable"]) | listed == names
@@ -346,3 +347,67 @@ def test_the_pickup_pool_page(client: TestClient) -> None:
     assert "Items in pool: 145/149" in r.text
     config = exported(client, pid)["configuration"]["ammo_pickup_configuration"]
     assert config["pickups_state"]["Power Bomb Tank"]["pickup_count"] == 10
+
+
+# ---- trick levels and hints ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("key", sorted(presets.bundled_dread_presets()))
+def test_the_trick_levels_save_unchanged(key: str) -> None:
+    preset = bundled(key)
+    form = {t.key: t.level for t in rdv_presets.trick_view(preset)}
+    assert rdv_presets.apply(preset, "logic", form).configuration == preset.configuration
+
+
+def test_setting_trick_levels() -> None:
+    preset = bundled()
+    rows = rdv_presets.trick_view(preset)
+    assert len(rows) > 20 and all(r.level == "disabled" for r in rows)  # the starter preset
+    assert "Suitless" not in {
+        r.key.removeprefix("trick.") for r in rows
+    }  # hidden in Randovania too
+    form = {r.key: r.level for r in rows}
+    form["trick.Movement"] = "advanced"
+    changed = rdv_presets.apply(preset, "logic", form)
+    levels = {r.key: r.level for r in rdv_presets.trick_view(changed)}
+    assert levels["trick.Movement"] == "advanced"
+    rdv_presets.check(changed)
+    exported_levels = rdv_presets.to_json(changed)["configuration"]["trick_level"][
+        "specific_levels"
+    ]
+    assert exported_levels == {"Movement": "advanced"}
+    with pytest.raises(rdv_presets.PresetProblem, match="choose one of the levels"):
+        rdv_presets.apply(preset, "logic", {"trick.Movement": "godlike"})
+
+
+def test_hints() -> None:
+    preset = bundled()
+    form = {
+        "hints.enable_random_hints": "on",
+        "hints.minimum_available_locations_for_hint_placement": "7",
+        "hints.minimum_location_weight_for_hint_placement": "0.5",
+        "april_fools_hints": "on",
+    }
+    changed = rdv_presets.apply(preset, "hints", form)
+    hints = changed.configuration.hints
+    assert hints.enable_random_hints and not hints.enable_specific_location_hints
+    assert hints.minimum_available_locations_for_hint_placement == 7
+    assert hints.minimum_location_weight_for_hint_placement == 0.5
+    assert changed.configuration.april_fools_hints
+    rdv_presets.check(changed)
+    form["hints.minimum_location_weight_for_hint_placement"] = "9"
+    with pytest.raises(rdv_presets.PresetProblem, match=r"from 0\.0 to 5\.0"):
+        rdv_presets.apply(preset, "hints", form)
+
+
+def test_the_trick_level_page(client: TestClient) -> None:
+    pid = copy(client)["id"]
+    page = client.get(f"/presets/{pid}/edit?tab=logic").text
+    assert 'name="trick.Movement"' in page and "Ludicrous" in page
+    form = {t.key: t.level for t in rdv_presets.trick_view(bundled())}
+    form["trick.IBJ"] = "expert"
+    r = client.post(f"/presets/{pid}/edit/logic", data=form, headers=HX)
+    assert "Saved." in r.text
+    assert exported(client, pid)["configuration"]["trick_level"]["specific_levels"] == {
+        "IBJ": "expert"
+    }

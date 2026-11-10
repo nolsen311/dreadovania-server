@@ -46,6 +46,7 @@ from randovania.layout.base.standard_pickup_state import (
     StandardPickupState,
     StandardPickupStateCase,
 )
+from randovania.layout.base.trick_level import LayoutTrickLevel
 from randovania.layout.generator_parameters import GeneratorParameters
 from randovania.layout.permalink import Permalink
 from randovania.layout.preset import Preset
@@ -131,7 +132,7 @@ def _reason(exc: Exception) -> str:
 
 # ---- what the editor shows ------------------------------------------------------------------
 
-Kind = Literal["bool", "int", "optional_int", "choice"]
+Kind = Literal["bool", "int", "float", "optional_int", "choice"]
 
 
 @dataclass(frozen=True)
@@ -199,7 +200,12 @@ _DAMAGE = "damage per second"
 # In the order of Randovania's preset editor (dread_preset_tabs). Tabs without
 # groups are coming in later pull requests (ADR 0019).
 TABS: tuple[Tab, ...] = (
-    Tab("logic", "Trick level"),
+    Tab("logic", "Trick level", custom="tricks", covers=(("trick_level", "specific_levels"),),
+        help="Randovania has rules in place which guarantee that your game is completable "
+             "regardless of the modifications made to it. Here you can also configure what "
+             "level of skill it expects you to have: the level used for each trick below. "
+             "No matter your settings, it is always possible to softlock when you enter a "
+             "room or area that you're unable to leave."),
     Tab("generation", "Generation", (
         Group("Item placement", (
             Setting(("available_locations", "randomization_mode"), "Item placement", "choice",
@@ -257,7 +263,42 @@ TABS: tuple[Tab, ...] = (
                     choices=_choices(LayoutDamageStrictness)),
         )),
     )),
-    Tab("hints", "Hints"),
+    Tab("hints", "Hints", (
+        Group("Random hints", (
+            Setting(("hints", "enable_random_hints"), "Enable random hints", "bool",
+                    "Random hints are hints scattered randomly across hint locations, and can "
+                    "provide you with various pieces of information. If disabled, all random "
+                    "hints will be replaced with jokes."),
+            Setting(("hints", "use_resolver_hints"), "Use resolver-based hints", "bool",
+                    "Uses data from the resolver to determine hint-placement, rather than data "
+                    "from the generator. Always enabled in individual Door Lock Randomizer. Not "
+                    "compatible with multiworld.", experimental=True),
+            Setting(("hints", "minimum_available_locations_for_hint_placement"),
+                    "Minimum available locations for hint placement", "int",
+                    "Pickups can only be hinted if there were at least this many available "
+                    "locations at the time they were placed.", experimental=True),
+            Setting(("hints", "minimum_location_weight_for_hint_placement"),
+                    "Minimum location weight for hint placement", "float",
+                    "Pickups can only be hinted if they had this much weight when placed by "
+                    "the generator. Resolver-based hints only ever have a weight of 0.0, so "
+                    "it's not recommended to raise this.", experimental=True),
+        )),
+        Group("Specific location hints", (
+            Setting(("hints", "enable_specific_location_hints"),
+                    "Enable specific location hints", "bool",
+                    "Specific location hints are always in the same hint location, and always "
+                    "provide you with information about the pickup in the specific pickup "
+                    "location associated with that hint. If disabled, all specific location "
+                    "hints will be replaced with jokes."),
+        )),
+        Group("Jokes", (
+            Setting(("april_fools_hints",), "April Fools hints", "bool",
+                    "Location hints are worded as jokes (\"Can you guess where … goes?\"). "
+                    "Randovania's app doesn't show this setting; its April Fools preset turns "
+                    "it on.", ours=True),
+        )),
+    ), help="For more information about Randovania's hint system, see the hint-related "
+            "pages for Dread in Randovania's app."),
     Tab("locations", "Location pool"),
     Tab("goal", "Goal", (
         Group("Metroid DNA", (
@@ -373,15 +414,13 @@ TABS: tuple[Tab, ...] = (
 # Settings that aren't editable here, and why. The coverage test requires every
 # DreadConfiguration field to be editable or listed here (ADR 0019 §4).
 NOT_EDITABLE_YET: dict[str, str] = {
-    "trick_level": "trick levels: the Trick level tab, in a later version",
     "starting_location": "the Starting area tab, in a later version",
     "available_locations": "excluded locations: the Location pool tab, in a later version",
     "dock_weakness_distributor": "the Doors tab, in a later version",
-    "hints": "the Hints tab, in a later version",
-    "april_fools_hints": "the Hints tab, in a later version",
     "teleporters": "the Transporters tab, in a later version",
 }
 NOT_OFFERED: dict[str, str] = {
+    "hints.specific_pickup_hints": "Randovania defines no specific pickup hints for Dread yet",
     "single_set_for_pickups_that_solve": "a generator detail Randovania's app doesn't offer",
 }
 FIXED_SUBFIELDS = frozenset({"game"})  # which game a structure is for: never edited
@@ -444,6 +483,8 @@ def apply(preset: Preset, tab_id: str, form: Mapping[str, str]) -> Preset:
         raise PresetProblem("that settings tab doesn't exist")
     if found.custom == "pickups":
         return apply_pickups(preset, form)
+    if found.custom == "tricks":
+        return apply_tricks(preset, form)
     config = preset.configuration
     for setting in found.settings:
         config = _set(config, setting.path, _parse(setting, config, form))
@@ -463,6 +504,15 @@ def _parse(setting: Setting, config: Any, form: Mapping[str, str]) -> Any:
             if str(member.value) == raw:
                 return member
         raise PresetProblem(f"{setting.label}: choose one of the options")
+    if setting.kind == "float":
+        try:
+            value = round(float(raw), 1)
+        except ValueError:
+            raise PresetProblem(f"{setting.label}: enter a number") from None
+        low, high = setting.bounds
+        if (low is not None and value < low) or (high is not None and value > high):
+            raise PresetProblem(f"{setting.label}: enter a number from {low} to {high}")
+        return value
     if setting.kind == "optional_int":
         if f"{setting.key}.on" not in form:
             return None
@@ -817,12 +867,60 @@ def apply_pickups(preset: Preset, form: Mapping[str, str]) -> Preset:
         raise PresetProblem(_reason(exc)) from None
 
 
+# ---- trick levels (Randovania's Trick level tab) ----------------------------------------------
+
+TRICK_LEVELS = tuple(Choice(level.value, level.long_name) for level in LayoutTrickLevel)
+
+
+@dataclass(frozen=True)
+class TrickRow:
+    key: str  # the form field
+    name: str
+    description: str
+    level: str
+
+
+def _tricks() -> list[Any]:
+    db = default_database.resource_database_for(RandovaniaGame.METROID_DREAD)
+    return [t for t in db.trick if not t.hide_from_ui]
+
+
+def trick_view(preset: Preset) -> list[TrickRow]:
+    config = preset.configuration.trick_level
+    return [
+        TrickRow(f"trick.{t.short_name}", t.long_name, t.description,
+                 config.level_for_trick(t).value)
+        for t in _tricks()
+    ]  # fmt: skip
+
+
+def apply_tricks(preset: Preset, form: Mapping[str, str]) -> Preset:
+    """The Trick level tab's form applied; tricks missing from the form keep their level."""
+    config = preset.configuration.trick_level
+    for trick in _tricks():
+        raw = form.get(f"trick.{trick.short_name}")
+        if raw is None:
+            continue
+        try:
+            level = LayoutTrickLevel(raw)
+        except ValueError:
+            raise PresetProblem(f"{trick.long_name}: choose one of the levels") from None
+        if level != config.level_for_trick(trick):
+            config = config.set_level_for_trick(trick, level)
+    try:
+        return dataclasses.replace(
+            preset, configuration=dataclasses.replace(preset.configuration, trick_level=config)
+        )
+    except ValueError as exc:
+        raise PresetProblem(_reason(exc)) from None
+
+
 def coverage() -> dict[str, list[str]]:
     """Which DreadConfiguration fields are editable here, and which aren't (and why)."""
     editable = {s.path for t in TABS for s in t.settings} | {p for t in TABS for p in t.covers}
 
     def covered(cls: Any, prefix: tuple[str, ...]) -> bool:
-        if prefix in editable:
+        if prefix in editable or (len(prefix) > 1 and ".".join(prefix) in NOT_OFFERED):
             return True
         below = any(path[: len(prefix)] == prefix for path in editable)
         if not below or not dataclasses.is_dataclass(cls):
@@ -857,6 +955,7 @@ __all__ = [
     "Tab",
     "apply",
     "apply_pickups",
+    "apply_tricks",
     "check",
     "copy_of",
     "coverage",
@@ -869,5 +968,6 @@ __all__ = [
     "renamed",
     "tab",
     "to_json",
+    "trick_view",
     "warnings",
 ]
