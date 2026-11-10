@@ -25,7 +25,9 @@ from typing import Any, Literal
 
 from randovania.game.game_enum import RandovaniaGame
 from randovania.game_description import default_database
+from randovania.game_description.db.pickup_node import PickupNode
 from randovania.game_description.pickup.pickup_entry import StartingPickupBehavior
+from randovania.game_description.resources.location_category import LocationCategory
 from randovania.games.dread.layout import progressive_items as dread_progressive_items
 from randovania.games.dread.layout.dread_configuration import (
     DreadConfiguration,
@@ -33,6 +35,7 @@ from randovania.games.dread.layout.dread_configuration import (
 )
 from randovania.generator.pickup_pool import pool_creator
 from randovania.layout.base.available_locations import RandomizationMode
+from randovania.layout.base.base_configuration import StartingLocationList
 from randovania.layout.base.damage_strictness import LayoutDamageStrictness
 from randovania.layout.base.logical_pickup_placement_configuration import (
     LogicalPickupPlacementConfiguration,
@@ -299,7 +302,11 @@ TABS: tuple[Tab, ...] = (
         )),
     ), help="For more information about Randovania's hint system, see the hint-related "
             "pages for Dread in Randovania's app."),
-    Tab("locations", "Location pool"),
+    Tab("locations", "Location pool", custom="locations",
+        covers=(("available_locations", "excluded_indices"),),
+        help="Shuffled: the location is shuffled normally. Shuffled (no progression): it's "
+             "shuffled, but can't contain an item required for progression. Item placement "
+             "(full or major/minor split) is on the Generation tab."),
     Tab("goal", "Goal", (
         Group("Metroid DNA", (
             Setting(("artifacts", "required_artifacts"), "Required Metroid DNA", "int",
@@ -321,7 +328,10 @@ TABS: tuple[Tab, ...] = (
         ("pickup_model_style",), ("pickup_model_data_source",),
     )),
     Tab("transporters", "Transporters"),
-    Tab("start", "Starting area"),
+    Tab("start", "Starting area", custom="start", covers=(("starting_location", "locations"),),
+        help="The area where the game starts can be customized, being selected randomly from "
+             "this list. Warning: depending on the starting items that are configured, it may "
+             "be impossible to start at the chosen place. In that case, generation will fail."),
     Tab("doors", "Doors"),
     Tab("energy", "Energy", (
         Group("Energy Part", (
@@ -414,8 +424,6 @@ TABS: tuple[Tab, ...] = (
 # Settings that aren't editable here, and why. The coverage test requires every
 # DreadConfiguration field to be editable or listed here (ADR 0019 §4).
 NOT_EDITABLE_YET: dict[str, str] = {
-    "starting_location": "the Starting area tab, in a later version",
-    "available_locations": "excluded locations: the Location pool tab, in a later version",
     "dock_weakness_distributor": "the Doors tab, in a later version",
     "teleporters": "the Transporters tab, in a later version",
 }
@@ -485,6 +493,10 @@ def apply(preset: Preset, tab_id: str, form: Mapping[str, str]) -> Preset:
         return apply_pickups(preset, form)
     if found.custom == "tricks":
         return apply_tricks(preset, form)
+    if found.custom == "locations":
+        return apply_locations(preset, form)
+    if found.custom == "start":
+        return apply_start(preset, form)
     config = preset.configuration
     for setting in found.settings:
         config = _set(config, setting.path, _parse(setting, config, form))
@@ -915,6 +927,108 @@ def apply_tricks(preset: Preset, form: Mapping[str, str]) -> Preset:
         raise PresetProblem(_reason(exc)) from None
 
 
+# ---- the location pool and starting area (Randovania's tabs of those names) ------------------
+
+_PICKUP_NAME = re.compile(r"^Pickup \((.+)\)$")
+
+
+@dataclass(frozen=True)
+class LocationRow:
+    key: str  # the form field
+    name: str  # "Area (what's there)", as in Randovania's app
+    progression: bool  # may hold progression (not excluded)
+    locked: bool  # a minor location under major/minor split: never progression
+
+
+@dataclass(frozen=True)
+class StartRow:
+    key: str
+    name: str  # "Area / Node"
+    on: bool
+
+
+def _game() -> Any:
+    return default_database.game_description_for(RandovaniaGame.METROID_DREAD)
+
+
+def _pickup_nodes() -> list[tuple[str, str, Any]]:
+    """(region, display name, node) for every pickup location, sorted like Randovania's app."""
+    regions = _game().region_list
+    out = []
+    for region in regions.regions:
+        for area in region.areas:
+            for node in area.nodes:
+                if isinstance(node, PickupNode):
+                    match = _PICKUP_NAME.match(node.name)
+                    label = f"{area.name} ({match.group(1) if match else node.name})"
+                    out.append((region.name, label, node))
+    return sorted(out, key=lambda r: (r[0], r[1]))
+
+
+def location_view(preset: Preset) -> dict[str, list[LocationRow]]:
+    available = preset.configuration.available_locations
+    split = available.randomization_mode == RandomizationMode.MAJOR_MINOR_SPLIT
+    regions: dict[str, list[LocationRow]] = {}
+    for region, label, node in _pickup_nodes():
+        regions.setdefault(region, []).append(
+            LocationRow(
+                key=f"location.{node.pickup_index.index}",
+                name=label,
+                progression=node.pickup_index not in available.excluded_indices,
+                locked=split and node.location_category == LocationCategory.MINOR,
+            )
+        )
+    return regions
+
+
+def apply_locations(preset: Preset, form: Mapping[str, str]) -> Preset:
+    """Ticked locations may hold progression; the rest are "Shuffled (no progression)"."""
+    if "locations.form" not in form:  # every row is sent; a partial form would exclude all
+        raise PresetProblem("the form was incomplete: reload the page and try again")
+    available = preset.configuration.available_locations
+    split = available.randomization_mode == RandomizationMode.MAJOR_MINOR_SPLIT
+    for _region, _label, node in _pickup_nodes():
+        if split and node.location_category == LocationCategory.MINOR:
+            continue  # shown, but decided by major/minor split
+        wanted = f"location.{node.pickup_index.index}" in form
+        available = available.ensure_index(node.pickup_index, not wanted)
+    try:
+        return dataclasses.replace(
+            preset,
+            configuration=dataclasses.replace(preset.configuration, available_locations=available),
+        )
+    except ValueError as exc:
+        raise PresetProblem(_reason(exc)) from None
+
+
+def start_view(preset: Preset) -> dict[str, list[StartRow]]:
+    chosen = set(preset.configuration.starting_location.locations)
+    regions: dict[str, list[StartRow]] = {}
+    for node in StartingLocationList.nodes_list(RandovaniaGame.METROID_DREAD):
+        regions.setdefault(node.region, []).append(
+            StartRow(f"start.{node.as_string}", f"{node.area} / {node.node}", node in chosen)
+        )
+    return regions
+
+
+def apply_start(preset: Preset, form: Mapping[str, str]) -> Preset:
+    nodes = [
+        node
+        for node in StartingLocationList.nodes_list(RandovaniaGame.METROID_DREAD)
+        if f"start.{node.as_string}" in form
+    ]
+    if not nodes:
+        raise PresetProblem("choose at least one starting location")
+    starting = StartingLocationList.with_elements(nodes, RandovaniaGame.METROID_DREAD)
+    try:
+        return dataclasses.replace(
+            preset,
+            configuration=dataclasses.replace(preset.configuration, starting_location=starting),
+        )
+    except ValueError as exc:
+        raise PresetProblem(_reason(exc)) from None
+
+
 def coverage() -> dict[str, list[str]]:
     """Which DreadConfiguration fields are editable here, and which aren't (and why)."""
     editable = {s.path for t in TABS for s in t.settings} | {p for t in TABS for p in t.covers}
@@ -954,7 +1068,9 @@ __all__ = [
     "Setting",
     "Tab",
     "apply",
+    "apply_locations",
     "apply_pickups",
+    "apply_start",
     "apply_tricks",
     "check",
     "copy_of",
@@ -963,9 +1079,11 @@ __all__ = [
     "description_text",
     "form_value",
     "load",
+    "location_view",
     "pickup_view",
     "pool_size",
     "renamed",
+    "start_view",
     "tab",
     "to_json",
     "trick_view",

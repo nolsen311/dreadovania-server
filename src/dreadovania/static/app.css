@@ -114,3 +114,5 @@ label.check input { flex: none; }
 details.custom > summary { min-height: 36px; font-weight: 400; font-size: .9rem; }
 textarea { font-weight: 400; }
 #about-form { margin-top: .5rem; }
+details.card-in { border: 1px solid var(--line); border-radius: var(--radius); padding: 0 .75rem; }
+details.card-in > .stack { padding: 0 0 .75rem; }

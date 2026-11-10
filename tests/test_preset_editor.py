@@ -411,3 +411,81 @@ def test_the_trick_level_page(client: TestClient) -> None:
     assert exported(client, pid)["configuration"]["trick_level"]["specific_levels"] == {
         "IBJ": "expert"
     }
+
+
+# ---- location pool and starting area ------------------------------------------------------------
+
+
+def location_form(preset: rdv_presets.Preset) -> dict[str, str]:
+    form = {"locations.form": "1"}
+    for rows in rdv_presets.location_view(preset).values():
+        form.update({r.key: "on" for r in rows if r.progression and not r.locked})
+    return form
+
+
+def start_form(preset: rdv_presets.Preset) -> dict[str, str]:
+    return {r.key: "on" for rows in rdv_presets.start_view(preset).values() for r in rows if r.on}
+
+
+@pytest.mark.parametrize("key", sorted(presets.bundled_dread_presets()))
+def test_locations_and_start_save_unchanged(key: str) -> None:
+    preset = bundled(key)
+    assert rdv_presets.apply(preset, "locations", location_form(preset)) == preset
+    assert rdv_presets.apply(preset, "start", start_form(preset)) == preset
+
+
+def test_excluding_locations() -> None:
+    preset = bundled()
+    view = rdv_presets.location_view(preset)
+    assert sum(len(rows) for rows in view.values()) == 149
+    assert "Artaria" in view
+    form = location_form(preset)
+    first = next(iter(view["Artaria"]))
+    del form[first.key]
+    changed = rdv_presets.apply(preset, "locations", form)
+    index = int(first.key.removeprefix("location."))
+    assert [i.index for i in changed.configuration.available_locations.excluded_indices] == [index]
+    rdv_presets.check(changed)
+    with pytest.raises(rdv_presets.PresetProblem, match="incomplete"):
+        rdv_presets.apply(preset, "locations", {})
+
+
+def test_minor_locations_follow_major_minor_split() -> None:
+    preset = rdv_presets.apply(
+        bundled(), "generation",
+        {"available_locations.randomization_mode": "major/minor split",
+         "logical_resource_action": "randomly", "damage_strictness": "1.5",
+         "logical_pickup_placement": "minimal"},
+    )  # fmt: skip
+    rows = [r for rows in rdv_presets.location_view(preset).values() for r in rows]
+    assert any(r.locked for r in rows) and not all(r.locked for r in rows)
+    form = location_form(preset)
+    changed = rdv_presets.apply(preset, "locations", form)
+    assert changed == preset  # locked rows aren't in the form and aren't changed
+
+
+def test_choosing_starting_locations() -> None:
+    preset = bundled()
+    view = rdv_presets.start_view(preset)
+    rows = [r for rs in view.values() for r in rs]
+    assert len(rows) == 35 and [r.name for r in rows if r.on] == ["Intro Room / Start Point"]
+    form = {rows[0].key: "on", rows[5].key: "on"}
+    changed = rdv_presets.apply(preset, "start", form)
+    assert len(changed.configuration.starting_location.locations) == 2
+    rdv_presets.check(changed)
+    with pytest.raises(rdv_presets.PresetProblem, match="at least one"):
+        rdv_presets.apply(preset, "start", {})
+
+
+def test_the_location_and_start_pages(client: TestClient) -> None:
+    pid = copy(client)["id"]
+    page = client.get(f"/presets/{pid}/edit?tab=locations").text
+    assert 'name="locations.form"' in page and "may hold progression" in page
+    page = client.get(f"/presets/{pid}/edit?tab=start").text
+    assert "Intro Room / Start Point" in page
+    starts = [r.key for rs in rdv_presets.start_view(bundled()).values() for r in rs]
+    r = client.post(f"/presets/{pid}/edit/start", data={starts[1]: "on"}, headers=HX)
+    assert "Saved." in r.text
+    saved = exported(client, pid)["configuration"]["starting_location"]
+    intro = {"region": "Artaria", "area": "Intro Room", "node": "Start Point"}
+    assert len(saved) == 1 and saved[0] != intro

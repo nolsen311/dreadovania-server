@@ -1,0 +1,16 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{# The Location pool tab (ADR 0019): which locations may hold progression. #}
+<input type="hidden" name="locations.form" value="1">
+<p class="muted"><small>Ticked: Shuffled. Unticked: Shuffled (no progression).
+  {% if split %}Minor locations are decided by major/minor split.{% endif %}</small></p>
+{% for region, rows in locations.items() %}
+<details class="card-in">
+  <summary>{{ region }} <small>({{ rows | selectattr("progression") | list | length }}/{{ rows | length }} may hold progression)</small></summary>
+  <div class="stack">
+    {% for r in rows %}
+    <label class="check"><input type="checkbox" name="{{ r.key }}" value="on" {% if r.progression %}checked{% endif %} {% if r.locked %}disabled{% endif %}>
+      {{ r.name }}{% if r.locked %} <small>(minor)</small>{% endif %}</label>
+    {% endfor %}
+  </div>
+</details>
+{% endfor %}

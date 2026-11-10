@@ -534,6 +534,14 @@ def _tab_context(preset: rdv_presets.Preset, tab: rdv_presets.Tab) -> dict[str, 
         "values": {s.key: rdv_presets.form_value(preset, s) for s in tab.settings},
         "warnings": rdv_presets.warnings(preset),
     }
+    if tab.custom == "locations":
+        context["locations"] = rdv_presets.location_view(preset)
+        context["split"] = (
+            preset.configuration.available_locations.randomization_mode.value != "full"
+        )
+    if tab.custom == "start":
+        context["starts"] = rdv_presets.start_view(preset)
+        context["start_count"] = len(preset.configuration.starting_location.locations)
     if tab.custom == "tricks":
         context["tricks"] = rdv_presets.trick_view(preset)
         context["trick_levels"] = rdv_presets.TRICK_LEVELS
@@ -586,7 +594,8 @@ async def preset_edit_about(preset_id: str, request: Request) -> Response:
 async def preset_edit_tab(preset_id: str, tab_id: str, request: Request) -> Response:
     user = page_session(request)
     form = await read_form(
-        request, MAX_PICKUP_FORM_BYTES if tab_id == "pickups" else MAX_FORM_BYTES
+        request,
+        MAX_PICKUP_FORM_BYTES if tab_id in ("pickups", "locations", "start") else MAX_FORM_BYTES,
     )
     store = request.app.state.presets
     found = rdv_presets.tab(tab_id)

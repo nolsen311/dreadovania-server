@@ -1,0 +1,13 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{# The Starting area tab (ADR 0019): where a seed may start. #}
+<p class="muted"><small>{{ start_count }} chosen. The game starts at one of them, at random.</small></p>
+{% for region, rows in starts.items() %}
+<details class="card-in" {% if rows | selectattr("on") | list %}open{% endif %}>
+  <summary>{{ region }} <small>({{ rows | selectattr("on") | list | length }}/{{ rows | length }})</small></summary>
+  <div class="stack">
+    {% for r in rows %}
+    <label class="check"><input type="checkbox" name="{{ r.key }}" value="on" {% if r.on %}checked{% endif %}> {{ r.name }}</label>
+    {% endfor %}
+  </div>
+</details>
+{% endfor %}
