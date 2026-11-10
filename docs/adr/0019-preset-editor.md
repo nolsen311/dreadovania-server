@@ -33,8 +33,9 @@ carry a schema version, and Randovania migrates old files when it loads them.
 4. **Complete by test.** A test lists every `DreadConfiguration` field and
    requires each one to be editable, or listed as "not editable yet" with a
    reason. A setting Randovania's own app doesn't offer either (a generator
-   detail) may be listed as "not offered", also with a reason. A Randovania upgrade that adds a setting then fails CI until it is
-   handled, so "every setting" stays true.
+   detail) may be listed as "not offered", also with a reason. A Randovania
+   upgrade that adds a setting then fails CI until it is handled, so "every
+   setting" stays true.
 5. **The same tabs as the desktop app, in its order:** Logic (trick levels),
    Generation, Hints, Locations, Goal, Pickup pool, Transporters, Starting
    area, Doors, Energy, Other, Lights, Chaos. Labels and help text follow
