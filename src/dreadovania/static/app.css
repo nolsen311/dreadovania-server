@@ -110,3 +110,7 @@ textarea { width: 100%; font: inherit; padding: .5rem; border: 1px solid var(--l
 .actions { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 .lines { white-space: pre-line; }
 label.check input { flex: none; }
+.pickup + .pickup { border-top: 1px solid var(--line); padding-top: .6rem; }
+details.custom > summary { min-height: 36px; font-weight: 400; font-size: .9rem; }
+textarea { font-weight: 400; }
+#about-form { margin-top: .5rem; }

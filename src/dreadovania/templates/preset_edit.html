@@ -5,13 +5,16 @@
 <p><a href="/presets">← Presets</a></p>
 <h1>{{ preset_name }}</h1>
 
-<form id="about-form" class="card stack" method="post" action="/presets/{{ preset_id }}/edit/about"
+<details class="card">
+<summary>Name and description</summary>
+<form id="about-form" class="stack" method="post" action="/presets/{{ preset_id }}/edit/about"
       hx-post="/presets/{{ preset_id }}/edit/about" hx-target="#messages" hx-disabled-elt="find button">
   <label>Name <input name="name" maxlength="100" required value="{{ preset_name }}"></label>
   <label>Description <small>(optional)</small>
     <textarea name="description" maxlength="2000" rows="4">{{ description | preset_text }}</textarea></label>
   <button type="submit">Save name and description</button>
 </form>
+</details>
 
 <nav class="tabs" aria-label="Settings">
   {% for t in tabs if t.ready %}
