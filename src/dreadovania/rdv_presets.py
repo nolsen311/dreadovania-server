@@ -23,16 +23,29 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from randovania.game.game_enum import RandovaniaGame
+from randovania.game_description import default_database
+from randovania.game_description.pickup.pickup_entry import StartingPickupBehavior
+from randovania.games.dread.layout import progressive_items as dread_progressive_items
 from randovania.games.dread.layout.dread_configuration import (
     DreadConfiguration,
     DreadRavenBeakDamageMode,
 )
+from randovania.generator.pickup_pool import pool_creator
 from randovania.layout.base.available_locations import RandomizationMode
 from randovania.layout.base.damage_strictness import LayoutDamageStrictness
 from randovania.layout.base.logical_pickup_placement_configuration import (
     LogicalPickupPlacementConfiguration,
 )
 from randovania.layout.base.logical_resource_action import LayoutLogicalResourceAction
+from randovania.layout.base.pickup_model import PickupModelDataSource, PickupModelStyle
+from randovania.layout.base.standard_pickup_configuration import StandardPickupConfiguration
+from randovania.layout.base.standard_pickup_state import (
+    DEFAULT_MAXIMUM_SHUFFLED,
+    StandardPickupPriority,
+    StandardPickupState,
+    StandardPickupStateCase,
+)
 from randovania.layout.generator_parameters import GeneratorParameters
 from randovania.layout.permalink import Permalink
 from randovania.layout.preset import Preset
@@ -90,6 +103,12 @@ def renamed(preset: Preset, name: str, description: str) -> Preset:
 
 def check(preset: Preset) -> list[str]:
     """Pack the preset into a permalink, as generating does. Returns Randovania's warnings."""
+    pool = pool_size(preset)
+    if pool.pickups > pool.locations:
+        raise PresetProblem(
+            f"there are {pool.pickups} pickups for {pool.locations} locations: "
+            "shuffle fewer items or expansions"
+        )
     try:
         Permalink.from_parameters(
             GeneratorParameters(seed_number=0, spoiler=True, presets=[preset])
@@ -156,6 +175,8 @@ class Tab:
     title: str
     groups: tuple[Group, ...] = ()
     help: str = ""
+    custom: str = ""  # a tab with its own form and template, e.g. "pickups"
+    covers: tuple[tuple[str, ...], ...] = ()  # what a custom tab edits, for coverage()
 
     @property
     def settings(self) -> list[Setting]:
@@ -163,7 +184,7 @@ class Tab:
 
     @property
     def ready(self) -> bool:
-        return bool(self.groups)
+        return bool(self.groups) or bool(self.custom)
 
 
 def _choices(enum_type: type[enum.Enum], labels: Mapping[Any, str] | None = None) -> tuple:
@@ -254,7 +275,10 @@ TABS: tuple[Tab, ...] = (
                 "many DNA shuffled as there are preferred locations enabled. Each option adds "
                 "6 locations, up to a total of 12."),
     )),
-    Tab("pickups", "Pickup pool"),
+    Tab("pickups", "Pickup pool", custom="pickups", covers=(
+        ("standard_pickup_configuration",), ("ammo_pickup_configuration",),
+        ("pickup_model_style",), ("pickup_model_data_source",),
+    )),
     Tab("transporters", "Transporters"),
     Tab("start", "Starting area"),
     Tab("doors", "Doors"),
@@ -352,10 +376,6 @@ NOT_EDITABLE_YET: dict[str, str] = {
     "trick_level": "trick levels: the Trick level tab, in a later version",
     "starting_location": "the Starting area tab, in a later version",
     "available_locations": "excluded locations: the Location pool tab, in a later version",
-    "standard_pickup_configuration": "the Pickup pool tab, in a later version",
-    "ammo_pickup_configuration": "the Pickup pool tab, in a later version",
-    "pickup_model_style": "the Pickup pool tab, in a later version",
-    "pickup_model_data_source": "the Pickup pool tab, in a later version",
     "dock_weakness_distributor": "the Doors tab, in a later version",
     "hints": "the Hints tab, in a later version",
     "april_fools_hints": "the Hints tab, in a later version",
@@ -422,6 +442,8 @@ def apply(preset: Preset, tab_id: str, form: Mapping[str, str]) -> Preset:
     found = tab(tab_id)
     if found is None or not found.ready:
         raise PresetProblem("that settings tab doesn't exist")
+    if found.custom == "pickups":
+        return apply_pickups(preset, form)
     config = preset.configuration
     for setting in found.settings:
         config = _set(config, setting.path, _parse(setting, config, form))
@@ -455,9 +477,349 @@ def _parse(setting: Setting, config: Any, form: Mapping[str, str]) -> Any:
     return number
 
 
+# ---- the pickup pool (Randovania's Pickup pool tab) -------------------------------------------
+
+_PICKUP_HELP = (
+    "Excluded: not in the game. Vanilla: in its original place. Starting: you start with "
+    "it. Shuffled: placed somewhere random. Custom: choose the numbers yourself."
+)
+_CUSTOM = StandardPickupStateCase.CUSTOM
+
+
+@dataclass(frozen=True)
+class AmmoField:
+    key: str
+    label: str
+    value: int
+    low: int
+    high: int
+
+
+@dataclass(frozen=True)
+class PickupRow:
+    name: str
+    case: str
+    cases: tuple[Choice, ...]
+    shuffled: int
+    starting: int
+    starting_max: int
+    original: bool | None  # None: it has no original location
+    priority: str
+    ammo: tuple[AmmoField, ...]
+    locked: bool  # must always be a starting item
+
+
+@dataclass(frozen=True)
+class PickupGroup:
+    title: str
+    rows: tuple[PickupRow, ...]
+
+
+@dataclass(frozen=True)
+class Progressive:
+    name: str  # the progressive pickup, e.g. "Progressive Beam"
+    label: str
+    on: bool
+
+
+@dataclass(frozen=True)
+class ExpansionRow:
+    name: str
+    pickups: int
+    ammo: tuple[AmmoField, ...]
+    requires_main: bool | None  # None: not offered for this expansion
+
+
+@dataclass(frozen=True)
+class PoolSize:
+    pickups: int
+    locations: int
+
+
+@dataclass(frozen=True)
+class PickupView:
+    pool: PoolSize
+    groups: tuple[PickupGroup, ...]
+    progressive: tuple[Progressive, ...]
+    expansions: tuple[ExpansionRow, ...]
+    random_starting: tuple[int, int, int]  # minimum, maximum, upper bound
+    model_style: Setting
+    model_source: Setting
+    help: str = _PICKUP_HELP
+
+
+PRIORITIES = tuple(Choice(p.value, p.pretty_text) for p in StandardPickupPriority)
+SHUFFLED_MAX = DEFAULT_MAXIMUM_SHUFFLED[-1]
+_MODEL_STYLE = Setting(("pickup_model_style",), "Pickup model", "choice",
+                       "How pickups look in the game before you collect them.",
+                       choices=_choices(PickupModelStyle))  # fmt: skip
+_MODEL_SOURCE = Setting(("pickup_model_data_source",), "Model data source", "choice",
+                        "When pickups are hidden, what they look like instead.",
+                        choices=_choices(PickupModelDataSource))  # fmt: skip
+
+
+def _db() -> Any:
+    return default_database.pickup_database_for_game(RandovaniaGame.METROID_DREAD)
+
+
+def _capacity(item: str) -> tuple[str, int]:
+    resource = default_database.resource_database_for(RandovaniaGame.METROID_DREAD).get_item(item)
+    return resource.long_name, resource.max_capacity
+
+
+def _progressive_pairs() -> list[tuple[str, tuple[str, ...]]]:
+    return list(dread_progressive_items.tuples())
+
+
+def _has_item(state: StandardPickupState) -> bool:
+    return bool(
+        state.num_shuffled_pickups
+        or state.num_included_in_starting_pickups
+        or state.include_copy_in_original_location
+    )
+
+
+def _progressive_on(config: Any, progressive: str, singles: tuple[str, ...]) -> bool:
+    """As Randovania's checkbox: on unless any of the separate pickups is in the game."""
+    states = {p.name: s for p, s in config.standard_pickup_configuration.pickups_state.items()}
+    return not any(_has_item(states[name]) for name in singles)
+
+
+def _cases(pickup: Any) -> tuple[Choice, ...]:
+    """The cases Randovania's app offers for this pickup, with its wording."""
+    out = []
+    for case in StandardPickupStateCase:
+        if case == StandardPickupStateCase.VANILLA and not pickup.original_locations:
+            continue
+        if case == StandardPickupStateCase.STARTING_ITEM and len(pickup.progression) > 1:
+            continue
+        if case == StandardPickupStateCase.SHUFFLED and pickup.count_for_shuffled_case > 1:
+            text = f"{pickup.count_for_shuffled_case} shuffled copies"
+        elif case == StandardPickupStateCase.STARTING_ITEM and pickup.count_for_starting_case > 1:
+            text = f"{pickup.count_for_starting_case} starting copies"
+        else:
+            text = case.pretty_text
+        out.append(Choice(case.value, text))
+    return tuple(out)
+
+
+def _starting_max(pickup: Any) -> int:
+    if len(pickup.progression) > 1:
+        return 0
+    return min((_capacity(p)[1] for p in pickup.progression), default=1)
+
+
+def pool_size(preset: Preset) -> PoolSize:
+    per_category = pool_creator.calculate_pool_pickup_count(preset.configuration)
+    total = pool_creator.get_total_pickup_count(per_category)
+    return PoolSize(total.pickups, total.locations)
+
+
+def pickup_view(preset: Preset) -> PickupView:
+    config = preset.configuration
+    standard = config.standard_pickup_configuration
+    hidden: set[str] = set()
+    progressive = []
+    for name, singles in _progressive_pairs():
+        on = _progressive_on(config, name, singles)
+        hidden.update(singles if on else (name,))
+        progressive.append(Progressive(name, "Use progressive " + " → ".join(singles), on))
+    groups: dict[str, list[PickupRow]] = {}
+    for pickup, state in standard.pickups_state.items():
+        if pickup.hide_from_gui or pickup.name in hidden:
+            continue
+        ammo = tuple(
+            AmmoField(f"pickup.{pickup.name}.ammo.{i}", label, value, 0, high)
+            for i, (item, value) in enumerate(zip(pickup.ammo, state.included_ammo, strict=True))
+            for label, high in [_capacity(item)]
+        )
+        groups.setdefault(pickup.gui_category.long_name, []).append(
+            PickupRow(
+                name=pickup.name,
+                case=state.closest_case(pickup).value,
+                cases=_cases(pickup),
+                shuffled=state.num_shuffled_pickups,
+                starting=state.num_included_in_starting_pickups,
+                starting_max=_starting_max(pickup),
+                original=state.include_copy_in_original_location
+                if pickup.original_locations
+                else None,
+                priority=state.priority.value,
+                ammo=ammo,
+                locked=pickup.starting_condition == StartingPickupBehavior.MUST_BE_STARTING,
+            )
+        )
+    expansions = []
+    for ammo, state in config.ammo_pickup_configuration.pickups_state.items():
+        fields = []
+        for i, (item, value) in enumerate(zip(ammo.items, state.ammo_count, strict=True)):
+            label, high = _capacity(item)
+            low = -high if ammo.allows_negative else 0
+            fields.append(AmmoField(f"ammo.{ammo.name}.count.{i}", label, value, low, high))
+        expansions.append(
+            ExpansionRow(
+                name=ammo.name,
+                pickups=state.pickup_count,
+                ammo=tuple(fields),
+                requires_main=state.requires_main_item
+                if ammo.temporary and ammo.show_requires_main
+                else None,
+            )
+        )
+    high = _starting_bound()
+    return PickupView(
+        pool=pool_size(preset),
+        groups=tuple(PickupGroup(title, tuple(rows)) for title, rows in groups.items()),
+        progressive=tuple(progressive),
+        expansions=tuple(expansions),
+        random_starting=(
+            standard.minimum_random_starting_pickups,
+            standard.maximum_random_starting_pickups,
+            high,
+        ),
+        model_style=_MODEL_STYLE,
+        model_source=_MODEL_SOURCE,
+    )
+
+
+def _starting_bound() -> int:
+    meta = {f.name: f.metadata for f in dataclasses.fields(StandardPickupConfiguration)}.get(
+        "maximum_random_starting_pickups", {}
+    )
+    return int(meta.get("max", 30))
+
+
+def _int(form: Mapping[str, str], key: str, label: str, low: int, high: int, default: int) -> int:
+    if key not in form:
+        return default
+    try:
+        value = int(form[key].strip())
+    except ValueError:
+        raise PresetProblem(f"{label}: enter a whole number") from None
+    if not low <= value <= high:
+        raise PresetProblem(f"{label}: enter a number from {low} to {high}")
+    return value
+
+
+def apply_pickups(preset: Preset, form: Mapping[str, str]) -> Preset:
+    """The Pickup pool tab's form applied, checked by Randovania."""
+    if "random_starting.min" not in form:  # every field is sent; a partial form would reset
+        raise PresetProblem("the form was incomplete: reload the page and try again")
+    config = preset.configuration
+    standard = config.standard_pickup_configuration
+    by_name = {p.name: p for p in standard.pickups_state}
+    new_states: dict[Any, StandardPickupState] = {}
+    reset: set[str] = set()
+
+    # Switching a progressive group resets its pickups, as Randovania's checkbox does.
+    for name, singles in _progressive_pairs():
+        wanted = f"progressive.{name}" in form
+        if wanted == _progressive_on(config, name, singles):
+            continue
+        new_states[by_name[name]] = StandardPickupState(
+            num_shuffled_pickups=len(singles) if wanted else 0
+        )
+        for single in singles:
+            new_states[by_name[single]] = StandardPickupState(
+                num_shuffled_pickups=0 if wanted else 1
+            )
+        reset.update((name, *singles))
+
+    for pickup, state in standard.pickups_state.items():
+        prefix = f"pickup.{pickup.name}"
+        if pickup.name in reset or f"{prefix}.case" not in form:
+            continue  # reset above, or not shown (hidden by its progressive group)
+        ammo = tuple(
+            _int(form, f"{prefix}.ammo.{i}", f"{pickup.name}: {label}", 0, high, value)
+            for i, (item, value) in enumerate(zip(pickup.ammo, state.included_ammo, strict=True))
+            for label, high in [_capacity(item)]
+        )
+        try:
+            case = StandardPickupStateCase(form[f"{prefix}.case"])
+        except ValueError:
+            raise PresetProblem(f"{pickup.name}: choose one of the options") from None
+        if case == _CUSTOM:
+            priority = form.get(f"{prefix}.priority", state.priority.value)
+            try:
+                new = StandardPickupState(
+                    include_copy_in_original_location=f"{prefix}.original" in form
+                    and bool(pickup.original_locations),
+                    num_shuffled_pickups=_int(form, f"{prefix}.shuffled",
+                                              f"{pickup.name}: shuffled", 0, SHUFFLED_MAX,
+                                              state.num_shuffled_pickups),
+                    num_included_in_starting_pickups=_int(
+                        form, f"{prefix}.starting", f"{pickup.name}: starting", 0,
+                        _starting_max(pickup), state.num_included_in_starting_pickups),
+                    priority=StandardPickupPriority(priority),
+                    included_ammo=ammo,
+                )  # fmt: skip
+            except ValueError:
+                raise PresetProblem(f"{pickup.name}: choose one of the options") from None
+        else:
+            new = StandardPickupState.from_case(pickup, case, ammo)
+            if new is None:
+                raise PresetProblem(f"{pickup.name} can't be {case.pretty_text.lower()}")
+        if new != state:
+            new_states[pickup] = new
+
+    ammo_config = config.ammo_pickup_configuration
+    new_ammo = {}
+    for ammo, state in ammo_config.pickups_state.items():
+        prefix = f"ammo.{ammo.name}"
+        counts = []
+        for i, (item, value) in enumerate(zip(ammo.items, state.ammo_count, strict=True)):
+            label, high = _capacity(item)
+            low = -high if ammo.allows_negative else 0
+            counts.append(
+                _int(form, f"{prefix}.count.{i}", f"{ammo.name}: {label}", low, high, value)
+            )
+        requires = state.requires_main_item
+        if ammo.temporary and ammo.show_requires_main and f"{prefix}.pickups" in form:
+            requires = f"{prefix}.requires_main" in form
+        new = dataclasses.replace(
+            state,
+            ammo_count=tuple(counts),
+            pickup_count=_int(form, f"{prefix}.pickups", f"{ammo.name}: pickups", 0, 999,
+                              state.pickup_count),
+            requires_main_item=requires,
+        )  # fmt: skip
+        if new != state:
+            new_ammo[ammo] = new
+
+    high = _starting_bound()
+    minimum = _int(form, "random_starting.min", "Minimum random starting items", 0, high,
+                   standard.minimum_random_starting_pickups)  # fmt: skip
+    maximum = _int(form, "random_starting.max", "Maximum random starting items", 0, high,
+                   standard.maximum_random_starting_pickups)  # fmt: skip
+    if minimum > maximum:
+        raise PresetProblem("random starting items: the minimum can't be more than the maximum")
+
+    try:
+        standard = dataclasses.replace(
+            standard.replace_states(new_states) if new_states else standard,
+            minimum_random_starting_pickups=minimum,
+            maximum_random_starting_pickups=maximum,
+        )
+        for ammo, state in new_ammo.items():
+            state.check_consistency(ammo)
+        changed = dataclasses.replace(
+            config,
+            standard_pickup_configuration=standard,
+            ammo_pickup_configuration=ammo_config.replace_states(new_ammo)
+            if new_ammo
+            else ammo_config,
+        )
+        for setting in (_MODEL_STYLE, _MODEL_SOURCE):
+            if setting.key in form:
+                changed = _set(changed, setting.path, _parse(setting, changed, form))
+        return dataclasses.replace(preset, configuration=changed)
+    except ValueError as exc:
+        raise PresetProblem(_reason(exc)) from None
+
+
 def coverage() -> dict[str, list[str]]:
     """Which DreadConfiguration fields are editable here, and which aren't (and why)."""
-    editable = {s.path for t in TABS for s in t.settings}
+    editable = {s.path for t in TABS for s in t.settings} | {p for t in TABS for p in t.covers}
 
     def covered(cls: Any, prefix: tuple[str, ...]) -> bool:
         if prefix in editable:
@@ -488,11 +850,13 @@ __all__ = [
     "TABS",
     "Choice",
     "Group",
+    "PickupView",
     "Preset",
     "PresetProblem",
     "Setting",
     "Tab",
     "apply",
+    "apply_pickups",
     "check",
     "copy_of",
     "coverage",
@@ -500,6 +864,8 @@ __all__ = [
     "description_text",
     "form_value",
     "load",
+    "pickup_view",
+    "pool_size",
     "renamed",
     "tab",
     "to_json",
