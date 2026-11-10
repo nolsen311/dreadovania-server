@@ -531,6 +531,7 @@ def _editable(request: Request, user: auth.Session, preset_id: str) -> rdv_prese
 def _tab_context(preset: rdv_presets.Preset, tab: rdv_presets.Tab) -> dict[str, Any]:
     context: dict[str, Any] = {
         "tab": tab,
+        "preset_name": preset.name,
         "values": {s.key: rdv_presets.form_value(preset, s) for s in tab.settings},
         "warnings": rdv_presets.warnings(preset),
     }
@@ -560,7 +561,9 @@ def _tab_context(preset: rdv_presets.Preset, tab: rdv_presets.Tab) -> dict[str, 
 
 
 @router.get("/presets/{preset_id}/edit")
-def preset_edit_page(preset_id: str, request: Request, tab: str = "generation") -> Response:
+def preset_edit_page(
+    preset_id: str, request: Request, tab: str = "generation", created: bool = False
+) -> Response:
     user = page_session(request)
     try:
         preset = _editable(request, user, preset_id)
@@ -573,7 +576,8 @@ def preset_edit_page(preset_id: str, request: Request, tab: str = "generation") 
         found = next(t for t in rdv_presets.TABS if t.ready)
     return render(
         request, "preset_edit.html", user=user, preset_id=preset_id, tabs=rdv_presets.TABS,
-        preset_name=preset.name, description=preset.description, **_tab_context(preset, found),
+        description=preset.description, created=created,
+        **_tab_context(preset, found),
     )  # fmt: skip
 
 
@@ -623,6 +627,33 @@ async def preset_edit_tab(preset_id: str, tab_id: str, request: Request) -> Resp
         request, "_preset_tab.html", preset_id=preset_id, saved=True,
         **_tab_context(changed, found),
     )  # fmt: skip
+
+
+@router.post("/presets/{preset_id}/edit/{tab_id}/save-as")
+async def preset_edit_save_as(preset_id: str, tab_id: str, request: Request) -> Response:
+    """Every setting of this preset, with this tab's unsaved changes, as a new preset.
+
+    The preset being edited is left as it was.
+    """
+    user = page_session(request)
+    form = await read_form(request, MAX_PICKUP_FORM_BYTES)
+    store = request.app.state.presets
+    found = rdv_presets.tab(tab_id)
+    if found is None or not found.ready:
+        return render(request, "_error.html", status_code=404, message="Settings tab not found")
+    preset = _editable(request, user, preset_id)
+    name = form.get("save_as_name", "").strip() or f"{preset.name} (variant)"[:100]
+    try:
+        changed = rdv_presets.apply(preset, tab_id, form)
+        info = await run_in_threadpool(
+            store.create, user.user_id, rdv_presets.copy_of(changed, name)
+        )
+    except PresetProblem as exc:
+        return render(
+            request, "_preset_tab.html", preset_id=preset_id, error=str(exc),
+            **_tab_context(preset, found),
+        )  # fmt: skip
+    return go(request, f"/presets/{info.id}/edit?tab={tab_id}&created=1")
 
 
 @router.post("/presets/{preset_id}/delete")

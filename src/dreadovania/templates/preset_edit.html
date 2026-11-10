@@ -4,6 +4,8 @@
 {% block content %}
 <p><a href="/presets">← Presets</a></p>
 <h1>{{ preset_name }}</h1>
+{% if created %}<p class="ok" role="status">Saved as a new preset. You're now editing it; the
+  one you started from is unchanged.</p>{% endif %}
 
 <details class="card">
 <summary>Name and description</summary>

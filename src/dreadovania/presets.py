@@ -163,18 +163,25 @@ class PresetStore:
         source = self.load(owner_id, preset_id)
         if source is None:
             return None
-        name = f"Copy of {source.name}"[:MAX_NAME]
-        copied = rdv_presets.copy_of(source, name)
-        rdv_presets.check(copied)
+        return self.create(
+            owner_id, rdv_presets.copy_of(source, f"Copy of {source.name}"[:MAX_NAME])
+        )
+
+    def create(self, owner_id: str, preset: rdv_presets.Preset) -> PresetInfo:
+        """Store a new preset of the user's, once Randovania accepts it (PresetProblem if not)."""
+        name = preset.name.strip()
+        if not name or len(name) > MAX_NAME:
+            raise PresetProblem(f"the preset needs a name of 1-{MAX_NAME} characters")
+        rdv_presets.check(preset)
+        content = rdv_presets.to_json(rdv_presets.renamed(preset, name, preset.description))
         new_id = str(uuid.uuid4())
         with self.db.connect() as conn:
             conn.execute(
                 "INSERT INTO presets (id, owner_id, name, description, content, created_at)"
                 " VALUES (?, ?, ?, ?, ?, ?)",
-                (new_id, owner_id, name, copied.description,
-                 json.dumps(rdv_presets.to_json(copied)), utc_now()),
-            )  # fmt: skip
-        return PresetInfo(USER_PREFIX + new_id, name, copied.description, False)
+                (new_id, owner_id, name, preset.description, json.dumps(content), utc_now()),
+            )
+        return PresetInfo(USER_PREFIX + new_id, name, preset.description, False)
 
     def save(self, owner_id: str, preset_id: str, preset: rdv_presets.Preset) -> list[str]:
         """Store an edited preset of the user's, once Randovania accepts it.
