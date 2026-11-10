@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Dreadovania">
+  <!-- Original artwork, as icon.svg. Monochrome: one colour on transparency, which
+       Android tints to match the user's theme (themed icons). -->
+  <g transform="translate(32 32) scale(0.7) translate(-32 -32)" fill="none" stroke="#ffffff" stroke-width="4.5" stroke-linejoin="round">
+    <path d="M32 8 52 20v24L32 56 12 44V20Z"/>
+    <path d="M25 22h7.5c6 0 10.5 4.2 10.5 10s-4.5 10-10.5 10H25Z"/>
+  </g>
+  <g transform="translate(32 32) scale(0.7) translate(-32 -32)" fill="#ffffff">
+    <circle cx="19" cy="22" r="2.6"/><circle cx="45" cy="44" r="2.6"/>
+  </g>
+</svg>
