@@ -41,6 +41,7 @@ templates.env.filters["preset_text"] = rdv_presets.description_text
 router = APIRouter(include_in_schema=False)
 
 MAX_FORM_BYTES = 16 * 1024
+MAX_PICKUP_FORM_BYTES = 64 * 1024  # the Pickup pool tab sends a few hundred fields
 TERMINAL = frozenset({"succeeded", "failed", "cancelled"})
 
 
@@ -63,12 +64,12 @@ def go(request: Request, url: str) -> Response:
     return RedirectResponse(url, status_code=303)
 
 
-async def read_form(request: Request) -> dict[str, str]:
+async def read_form(request: Request, limit: int = MAX_FORM_BYTES) -> dict[str, str]:
     """A small URL-encoded form, read with a size limit (no multipart parser needed)."""
     body = bytearray()
     async for chunk in request.stream():
         body.extend(chunk)
-        if len(body) > MAX_FORM_BYTES:
+        if len(body) > limit:
             raise ApiProblem(413, "Form too large")
     fields = parse_qs(body.decode("utf-8", "replace"), keep_blank_values=True)
     return {key: values[-1] for key, values in fields.items()}
@@ -528,11 +529,18 @@ def _editable(request: Request, user: auth.Session, preset_id: str) -> rdv_prese
 
 
 def _tab_context(preset: rdv_presets.Preset, tab: rdv_presets.Tab) -> dict[str, Any]:
-    return {
+    context: dict[str, Any] = {
         "tab": tab,
         "values": {s.key: rdv_presets.form_value(preset, s) for s in tab.settings},
         "warnings": rdv_presets.warnings(preset),
     }
+    if tab.custom == "pickups":
+        view = rdv_presets.pickup_view(preset)
+        context["pickups"] = view
+        context["priorities"] = rdv_presets.PRIORITIES
+        for s in (view.model_style, view.model_source):
+            context["values"][s.key] = rdv_presets.form_value(preset, s)
+    return context
 
 
 @router.get("/presets/{preset_id}/edit")
@@ -574,7 +582,9 @@ async def preset_edit_about(preset_id: str, request: Request) -> Response:
 @router.post("/presets/{preset_id}/edit/{tab_id}")
 async def preset_edit_tab(preset_id: str, tab_id: str, request: Request) -> Response:
     user = page_session(request)
-    form = await read_form(request)
+    form = await read_form(
+        request, MAX_PICKUP_FORM_BYTES if tab_id == "pickups" else MAX_FORM_BYTES
+    )
     store = request.app.state.presets
     found = rdv_presets.tab(tab_id)
     if found is None or not found.ready:

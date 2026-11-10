@@ -73,7 +73,7 @@ def test_every_bundled_preset_loads_checks_and_saves_unchanged(key: str) -> None
     preset = bundled(key)
     rdv_presets.check(preset)
     for tab in rdv_presets.TABS:
-        if not tab.ready:
+        if not tab.ready or tab.custom:  # custom tabs: their own tests below
             continue
         form = {}
         for s in tab.settings:
@@ -242,3 +242,107 @@ def test_descriptions_are_shown_as_lines() -> None:
 def test_the_presets_page_has_no_raw_markup(client: TestClient) -> None:
     page = client.get("/presets").text
     assert "&lt;br/&gt;" not in page and "<br/><br/>" not in page
+
+
+# ---- the pickup pool ---------------------------------------------------------------------------
+
+
+def pickup_form(preset: rdv_presets.Preset) -> dict[str, str]:
+    """The Pickup pool tab's form, as the page shows it."""
+    v = rdv_presets.pickup_view(preset)
+    form = {f"progressive.{p.name}": "on" for p in v.progressive if p.on}
+    for group in v.groups:
+        for r in group.rows:
+            k = f"pickup.{r.name}"
+            form[f"{k}.case"] = r.case
+            form[f"{k}.shuffled"] = str(r.shuffled)
+            if r.starting_max:
+                form[f"{k}.starting"] = str(r.starting)
+            if r.original:
+                form[f"{k}.original"] = "on"
+            form[f"{k}.priority"] = r.priority
+            form.update({a.key: str(a.value) for a in r.ammo})
+    for e in v.expansions:
+        form[f"ammo.{e.name}.pickups"] = str(e.pickups)
+        form.update({a.key: str(a.value) for a in e.ammo})
+        if e.requires_main:
+            form[f"ammo.{e.name}.requires_main"] = "on"
+    form["random_starting.min"], form["random_starting.max"] = map(str, v.random_starting[:2])
+    for s in (v.model_style, v.model_source):
+        form[s.key] = rdv_presets.form_value(preset, s)
+    return form
+
+
+@pytest.mark.parametrize("key", sorted(presets.bundled_dread_presets()))
+def test_the_pickup_pool_saves_unchanged(key: str) -> None:
+    preset = bundled(key)
+    changed = rdv_presets.apply(preset, "pickups", pickup_form(preset))
+    assert changed.configuration == preset.configuration
+
+
+def pickup_state(preset: rdv_presets.Preset, name: str):
+    states = preset.configuration.standard_pickup_configuration.pickups_state
+    return next(s for p, s in states.items() if p.name == name)
+
+
+def test_pickup_cases_custom_numbers_and_expansions() -> None:
+    preset = bundled()
+    form = pickup_form(preset)
+    form["pickup.Energy Tank.case"] = "custom"
+    form["pickup.Energy Tank.shuffled"] = "3"
+    form["pickup.Screw Attack.case"] = "starting_item"
+    form["ammo.Missile Tank.pickups"] = "40"
+    form["ammo.Missile Tank.count.0"] = "3"
+    changed = rdv_presets.apply(preset, "pickups", form)
+    assert pickup_state(changed, "Energy Tank").num_shuffled_pickups == 3
+    assert pickup_state(changed, "Screw Attack").num_included_in_starting_pickups == 1
+    ammo = changed.configuration.ammo_pickup_configuration.pickups_state
+    tank = next(s for a, s in ammo.items() if a.name == "Missile Tank")
+    assert (tank.pickup_count, tank.ammo_count) == (40, (3,))
+    rdv_presets.check(changed)
+
+
+def test_switching_to_progressive_beams() -> None:
+    preset = bundled()
+    form = pickup_form(preset)
+    assert "progressive.Progressive Beam" not in form  # the starter preset uses separate beams
+    form["progressive.Progressive Beam"] = "on"
+    changed = rdv_presets.apply(preset, "pickups", form)
+    assert pickup_state(changed, "Progressive Beam").num_shuffled_pickups == 3
+    assert pickup_state(changed, "Wide Beam").num_shuffled_pickups == 0
+    view = rdv_presets.pickup_view(changed)
+    shown = {r.name for g in view.groups for r in g.rows}
+    assert "Progressive Beam" in shown and "Wide Beam" not in shown
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "reason"),
+    [
+        ("ammo.Missile Tank.pickups", "500", "pickups for"),  # more than there are locations
+        ("ammo.Missile Tank.count.0", "5000", "from -999 to 999"),
+        ("pickup.Missiles.case", "missing", "Missiles"),  # Randovania: must be a starting item
+        ("pickup.Energy Tank.case", "nonsense", "choose one of the options"),
+        ("random_starting.min", "5", "minimum can't be more"),
+    ],
+)
+def test_refused_pickup_changes(field: str, value: str, reason: str) -> None:
+    preset = bundled()
+    form = pickup_form(preset)
+    form[field] = value
+    with pytest.raises(rdv_presets.PresetProblem, match=reason):
+        rdv_presets.check(rdv_presets.apply(preset, "pickups", form))
+
+
+def test_the_pickup_pool_page(client: TestClient) -> None:
+    pid = copy(client)["id"]
+    page = client.get(f"/presets/{pid}/edit?tab=pickups").text
+    assert "Items in pool: 148/149" in page
+    assert 'name="pickup.Energy Tank.case"' in page
+    assert 'name="progressive.Progressive Suit"' in page
+    form = pickup_form(bundled())
+    form["ammo.Power Bomb Tank.pickups"] = "10"
+    r = client.post(f"/presets/{pid}/edit/pickups", data=form, headers=HX)
+    assert "Saved." in r.text, r.text[:500]
+    assert "Items in pool: 145/149" in r.text
+    config = exported(client, pid)["configuration"]["ammo_pickup_configuration"]
+    assert config["pickups_state"]["Power Bomb Tank"]["pickup_count"] == 10

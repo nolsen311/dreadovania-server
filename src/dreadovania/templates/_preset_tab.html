@@ -6,6 +6,7 @@
   {% if error %}<p class="error" role="alert">Not saved: {{ error }}</p>{% endif %}
   {% if saved %}<p class="ok" role="status">Saved.</p>{% endif %}
   {% if tab.help %}<p class="muted">{{ tab.help }}</p>{% endif %}
+  {% if tab.custom == "pickups" %}{% include "_preset_pickups.html" %}{% endif %}
   {% for group in tab.groups %}
   <fieldset class="stack">
     <legend>{{ group.title }}</legend>

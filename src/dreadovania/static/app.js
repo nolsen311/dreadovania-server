@@ -67,6 +67,14 @@ document.addEventListener("DOMContentLoaded", () => {
     say("Couldn't reach the server. Check the connection and try again.");
   });
 
+  // Pickup pool (ADR 0019): a pickup's custom numbers only matter for "Custom".
+  document.body.addEventListener("change", (event) => {
+    const select = event.target;
+    if (!(select instanceof HTMLSelectElement) || !select.name.endsWith(".case")) return;
+    const custom = select.closest(".pickup")?.querySelector("details.custom");
+    if (custom) custom.hidden = select.value !== "custom";
+  });
+
   // Game files: resumable, chunked upload of a RomFS archive (ADR 0013).
   const uploadBox = document.getElementById("romfs-upload");
   if (uploadBox && document.getElementById("romfs-start")) setUpRomfsUpload(uploadBox);

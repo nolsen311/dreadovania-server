@@ -1,0 +1,81 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{# The Pickup pool tab (ADR 0019): Randovania's pickup states, progressive groups and expansions. #}
+{% set v = pickups %}
+<p class="{{ 'error' if v.pool.pickups > v.pool.locations else 'muted' }}">
+  <strong>Items in pool: {{ v.pool.pickups }}/{{ v.pool.locations }}</strong>
+  <small>If there are fewer pickups than locations, the rest hold nothing.</small></p>
+<p class="muted"><small>{{ v.help }}</small></p>
+
+<fieldset class="stack">
+  <legend>Progressive items</legend>
+  <p class="muted"><small>Changing one of these resets the pickups it covers, as in Randovania's app.</small></p>
+  {% for p in v.progressive %}
+  <label class="check"><input type="checkbox" name="progressive.{{ p.name }}" value="on" {% if p.on %}checked{% endif %}> {{ p.label }}</label>
+  {% endfor %}
+</fieldset>
+
+{% for group in v.groups %}
+<fieldset class="stack">
+  <legend>{{ group.title }}</legend>
+  {% for r in group.rows %}
+  {% set k = "pickup." ~ r.name %}
+  <div class="setting pickup">
+    <label>{{ r.name }}
+      <select name="{{ k }}.case" {% if r.locked %}aria-describedby="{{ k }}.locked"{% endif %}>
+        {% for c in r.cases if not r.locked or c.value == "starting_item" or c.value == r.case %}
+        <option value="{{ c.value }}" {% if c.value == r.case %}selected{% endif %}>{{ c.label }}</option>
+        {% endfor %}
+      </select></label>
+    {% if r.locked %}<small class="help" id="{{ k }}.locked">You always start with this.</small>{% endif %}
+    {% for a in r.ammo %}
+    <label class="indent">{{ a.label }} included
+      <input type="number" class="short" name="{{ a.key }}" value="{{ a.value }}" min="{{ a.low }}" max="{{ a.high }}" required></label>
+    {% endfor %}
+    <details class="custom" open {% if r.case != "custom" %}hidden{% endif %}>
+      <summary>Custom numbers</summary>
+      <div class="stack">
+        <label>Shuffled copies <input type="number" class="short" name="{{ k }}.shuffled" value="{{ r.shuffled }}" min="0" max="99"></label>
+        {% if r.starting_max %}<label>Starting copies <input type="number" class="short" name="{{ k }}.starting" value="{{ r.starting }}" min="0" max="{{ r.starting_max }}"></label>{% endif %}
+        {% if r.original is not none %}<label class="check"><input type="checkbox" name="{{ k }}.original" value="on" {% if r.original %}checked{% endif %}> Also in its original location</label>{% endif %}
+        <label>Priority <select name="{{ k }}.priority">
+          {% for p in priorities %}<option value="{{ p.value }}" {% if p.value == r.priority %}selected{% endif %}>{{ p.label }}</option>{% endfor %}
+        </select></label>
+      </div>
+    </details>
+  </div>
+  {% endfor %}
+</fieldset>
+{% endfor %}
+
+<fieldset class="stack">
+  <legend>Random starting items</legend>
+  <p class="muted"><small>Shuffled items you may start with, chosen at random when the seed is generated.</small></p>
+  <label>Minimum <input type="number" class="short" name="random_starting.min" value="{{ v.random_starting[0] }}" min="0" max="{{ v.random_starting[2] }}" required></label>
+  <label>Maximum <input type="number" class="short" name="random_starting.max" value="{{ v.random_starting[1] }}" min="0" max="{{ v.random_starting[2] }}" required></label>
+</fieldset>
+
+<fieldset class="stack">
+  <legend>Expansions</legend>
+  {% for e in v.expansions %}
+  {% set k = "ammo." ~ e.name %}
+  <div class="setting">
+    <strong>{{ e.name }}</strong>
+    <label class="indent">Pickups <input type="number" class="short" name="{{ k }}.pickups" value="{{ e.pickups }}" min="0" max="999" required></label>
+    {% for a in e.ammo %}
+    <label class="indent">{{ a.label }} each <input type="number" class="short" name="{{ a.key }}" value="{{ a.value }}" min="{{ a.low }}" max="{{ a.high }}" required></label>
+    {% endfor %}
+    {% if e.requires_main is not none %}
+    <label class="check indent"><input type="checkbox" name="{{ k }}.requires_main" value="on" {% if e.requires_main %}checked{% endif %}> Requires the main item to work</label>
+    {% endif %}
+  </div>
+  {% endfor %}
+</fieldset>
+
+<fieldset class="stack">
+  <legend>Pickup appearance</legend>
+  {% for s in (v.model_style, v.model_source) %}
+  <label>{{ s.label }}
+    <select name="{{ s.key }}">{% for c in s.choices %}<option value="{{ c.value }}" {% if c.value == values[s.key] %}selected{% endif %}>{{ c.label }}</option>{% endfor %}</select></label>
+  <small class="help">{{ s.help }}</small>
+  {% endfor %}
+</fieldset>

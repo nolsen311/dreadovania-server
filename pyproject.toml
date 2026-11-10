@@ -1,6 +1,6 @@
 [project]
 name = "dreadovania"
-version = "0.1.6"
+version = "0.2.0"
 description = "Self-hosted web server for generating and patching Randovania seeds for Metroid Dread."
 readme = "README.md"
 license = "GPL-3.0-or-later"
