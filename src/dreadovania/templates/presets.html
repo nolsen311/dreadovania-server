@@ -8,16 +8,24 @@
   </label>
   <button type="button" id="import-preset" class="primary">Import</button>
 </div>
+<p class="muted"><small>To change a built-in preset's settings, <strong>Customize</strong> it: that
+  makes a copy of your own to edit.</small></p>
 <ul class="seeds">
   {% for p in presets %}
   <li class="row">
     <span><strong>{{ p.name }}</strong> {% if p.builtin %}<span class="badge">built in</span>{% endif %}
-      {% if p.description %}<br><small>{{ p.description }}</small>{% endif %}</span>
-    {% if not p.builtin %}
-    <form hx-post="/presets/{{ p.id }}/delete" hx-confirm="Delete the preset “{{ p.name }}”?">
-      <button type="submit" class="danger small">Delete</button>
-    </form>
-    {% endif %}
+      {% if p.description %}<br><small class="lines">{{ p.description | preset_text }}</small>{% endif %}</span>
+    <span class="actions">
+      {% if not p.builtin %}<a class="button small" href="/presets/{{ p.id }}/edit">Edit</a>{% endif %}
+      <form class="inline" hx-post="/presets/{{ p.id }}/copy">
+        <button type="submit" class="small">{{ "Customize" if p.builtin else "Copy" }}</button>
+      </form>
+      {% if not p.builtin %}
+      <form class="inline" hx-post="/presets/{{ p.id }}/delete" hx-confirm="Delete the preset “{{ p.name }}”?">
+        <button type="submit" class="danger small">Delete</button>
+      </form>
+      {% endif %}
+    </span>
   </li>
   {% endfor %}
 </ul>

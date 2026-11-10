@@ -18,9 +18,9 @@ carry a schema version, and Randovania migrates old files when it loads them.
 ## Decision
 
 1. **Bundled presets stay read-only.** *Customize* copies a preset (bundled or
-   imported) into a new preset of the user's, named "Copy of …", with Randovania's
-   `base_preset_uuid` pointing at the original. Only the user's own presets are
-   edited.
+   imported) into a new preset of the user's, named "Copy of …", with a new
+   UUID, as Randovania's own Customize does (Randovania 12 no longer records
+   which preset a copy came from). Only the user's own presets are edited.
 2. **One adapter module**, `rdv_presets.py`, holds everything that knows
    Randovania's preset internals (ADR 0002): loading and migrating a preset,
    the editable fields with their labels and options, applying changes, and
@@ -32,8 +32,10 @@ carry a schema version, and Randovania migrates old files when it loads them.
    Presets are stored in Randovania's current schema.
 4. **Complete by test.** A test lists every `DreadConfiguration` field and
    requires each one to be editable, or listed as "not editable yet" with a
-   reason. A Randovania upgrade that adds a setting then fails CI until it is
-   handled, so "every setting" stays true.
+   reason. A setting Randovania's own app doesn't offer either (a generator
+   detail) may be listed as "not offered", also with a reason. A Randovania
+   upgrade that adds a setting then fails CI until it is handled, so "every
+   setting" stays true.
 5. **The same tabs as the desktop app, in its order:** Logic (trick levels),
    Generation, Hints, Locations, Goal, Pickup pool, Transporters, Starting
    area, Doors, Energy, Other, Lights, Chaos. Labels and help text follow
@@ -60,6 +62,8 @@ carry a schema version, and Randovania migrates old files when it loads them.
 6. Doors and Transporters.
 
 After pull request 6 the coverage test's "not editable yet" list is empty.
+Settings Randovania's app doesn't show for Dread but that matter to players
+(such as warp to start) are still offered, in plain wording of our own.
 
 ## Consequences
 
