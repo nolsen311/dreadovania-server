@@ -577,3 +577,48 @@ def test_the_door_and_transporter_pages(client: TestClient) -> None:
     r = client.post(f"/presets/{pid}/edit/transporters", data=form, headers=HX)
     assert "Saved." in r.text
     assert exported(client, pid)["configuration"]["teleporters"]["mode"] == "randomized"
+
+
+# ---- save as a new preset -----------------------------------------------------------------------
+
+
+def test_save_as_a_new_preset_keeps_the_original(client: TestClient) -> None:
+    pid = copy(client)["id"]
+    # A change on another tab first, saved to the original.
+    client.post(f"/presets/{pid}/edit/goal",
+                data={"artifacts.required_artifacts": "2", "artifacts.prefer_emmi": "on",
+                      "artifacts.prefer_major_bosses": "on"}, headers=HX)  # fmt: skip
+    page = client.get(f"/presets/{pid}/edit?tab=energy").text
+    assert f'hx-post="/presets/{pid}/edit/energy/save-as"' in page
+    form = {"immediate_energy_parts": "on", "energy_per_tank": "150",
+            "save_as_name": "Big tanks"}  # fmt: skip
+    r = client.post(f"/presets/{pid}/edit/energy/save-as", data=form, headers=HX)
+    assert r.status_code == 204
+    target = r.headers["hx-redirect"]
+    new_id = target.split("/")[2]
+    assert target.endswith("/edit?tab=energy&created=1") and new_id != pid
+    new = exported(client, new_id)
+    assert new["name"] == "Big tanks"
+    assert new["configuration"]["energy_per_tank"] == 150  # this tab's unsaved change
+    assert new["configuration"]["artifacts"]["required_artifacts"] == 2  # every other tab too
+    original = exported(client, pid)
+    assert original["configuration"]["energy_per_tank"] == 100  # unchanged
+    assert original["uuid"] != new["uuid"]
+    assert "Saved as a new preset" in client.get(target).text
+
+
+def test_save_as_explains_a_refusal_and_creates_nothing(client: TestClient) -> None:
+    pid = copy(client)["id"]
+    before = len(client.get("/api/v1/presets").json())
+    r = client.post(f"/presets/{pid}/edit/energy/save-as",
+                    data={"energy_per_tank": "5000", "save_as_name": "x"}, headers=HX)  # fmt: skip
+    assert "Not saved:" in r.text
+    assert len(client.get("/api/v1/presets").json()) == before
+
+
+def test_save_as_without_a_name(client: TestClient) -> None:
+    pid = copy(client)["id"]
+    form = {"immediate_energy_parts": "on", "energy_per_tank": "100"}
+    r = client.post(f"/presets/{pid}/edit/energy/save-as", data=form, headers=HX)
+    new_id = r.headers["hx-redirect"].split("/")[2]
+    assert exported(client, new_id)["name"] == "Copy of Starter Preset (variant)"

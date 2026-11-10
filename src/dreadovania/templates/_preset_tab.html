@@ -51,6 +51,17 @@
   </fieldset>
   {% endfor %}
   <button type="submit" class="primary">Save {{ tab.title | lower }}</button>
+  <details class="save-as">
+    <summary>Save as a new preset</summary>
+    <div class="stack">
+      <p class="muted"><small>Every setting of this preset, on every tab, with the changes on
+        this tab, goes into a new preset. This one stays as it was.</small></p>
+      <label>Name of the new preset
+        <input name="save_as_name" maxlength="100" placeholder="{{ (preset_name or 'This preset') ~ ' (variant)' }}"></label>
+      <button type="button" hx-post="/presets/{{ preset_id }}/edit/{{ tab.id }}/save-as"
+              hx-include="closest form" hx-target="#messages">Save as new preset</button>
+    </div>
+  </details>
   {% if warnings %}
   <div class="warnings">
     <p><strong>Randovania's warnings</strong> <small>(the preset still works)</small></p>
