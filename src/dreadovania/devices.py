@@ -33,7 +33,7 @@ MAX_DEVICES = 20
 LAST_USED_EVERY = timedelta(minutes=1)  # don't write on every request
 
 # What a device token may do: list and generate seeds, read presets and jobs,
-# patch a seed and read its result. (method, route path as declared)
+# patch a seed, read its result and download it. (method, route path as declared)
 DEVICE_ROUTES = frozenset({
     ("GET", "/api/v1/devices/me"),
     ("DELETE", "/api/v1/devices/me"),
@@ -44,6 +44,8 @@ DEVICE_ROUTES = frozenset({
     ("GET", "/api/v1/seeds/{seed_id}"),
     ("GET", "/api/v1/seeds/{seed_id}/spoiler"),
     ("POST", "/api/v1/seeds/{seed_id}/mod"),
+    ("GET", "/api/v1/seeds/{seed_id}/mod/manifest"),
+    ("GET", "/api/v1/seeds/{seed_id}/mod.tar"),
     ("GET", "/api/v1/jobs/{job_id}"),
 })  # fmt: skip
 

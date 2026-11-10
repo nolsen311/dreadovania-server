@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 
 from dreadovania.jobs import CannotPatch, CannotSend, JobQueue, QueueFull
-from dreadovania.mods import iter_mod_zip
+from dreadovania.mods import ModError, iter_mod_tar, iter_mod_zip, mod_manifest, tar_size
 from dreadovania.presets import MAX_PRESET_BYTES, PresetInfo, PresetStore
 from dreadovania.problems import ApiProblem
 from dreadovania.romfs import SUPPORTED_VERSIONS, RomfsStatus, State
@@ -530,6 +530,67 @@ def download_mod(seed_id: str, request: Request, user: CurrentUser) -> Response:
             "Content-Disposition": f'attachment; filename="dreadovania-{label}.zip"',
             "Cache-Control": "no-store",
         },
+    )
+
+
+class ModFile(BaseModel):
+    path: str = Field(description="Where it goes on the SD card, e.g. atmosphere/contents/…")
+    size: int
+    sha256: str
+
+
+class ModManifest(BaseModel):
+    """The files in /mod.tar, in the same order. Check each one before installing."""
+
+    seed_id: str
+    file_count: int
+    size_bytes: int
+    tar_bytes: int = Field(description="The exact length of /mod.tar")
+    files: list[ModFile]
+
+
+def _patched_folder(request: Request, user_id: str, seed_id: str) -> tuple[dict, Any]:
+    seeds = _seeds(request)
+    seed = seeds.get(user_id, seed_id)
+    if seed is None:
+        raise _not_found("Seed")
+    folder = seeds.mod_dir(user_id, seed_id)
+    if folder is None:
+        raise ApiProblem(409, "Not patched", "patch this seed first")
+    return seed, folder
+
+
+@router.get("/seeds/{seed_id}/mod/manifest", tags=["patching"])
+async def mod_files(seed_id: str, request: Request, user: CurrentUser) -> ModManifest:
+    """The patched seed's files with their sizes and SHA-256, for the Switch app (ADR 0018)."""
+    _seed, folder = _patched_folder(request, user.user_id, seed_id)
+    try:
+        files = await run_in_threadpool(mod_manifest, folder)
+        total = await run_in_threadpool(tar_size, folder)
+    except ModError as exc:
+        raise ApiProblem(500, "Patched files unreadable", str(exc)) from None
+    return ModManifest(
+        seed_id=seed_id, file_count=len(files), size_bytes=sum(int(f["size"]) for f in files),
+        tar_bytes=total, files=[ModFile(**f) for f in files],  # type: ignore[arg-type]
+    )  # fmt: skip
+
+
+@router.get(
+    "/seeds/{seed_id}/mod.tar",
+    tags=["patching"],
+    response_class=StreamingResponse,
+    responses={200: {"content": {"application/x-tar": {}}}},
+)
+def download_mod_tar(seed_id: str, request: Request, user: CurrentUser) -> Response:
+    """The patched seed as one uncompressed ustar archive, for the Switch app (ADR 0018).
+
+    Members are `atmosphere/…`, in the order /mod/manifest lists them.
+    """
+    _seed, folder = _patched_folder(request, user.user_id, seed_id)
+    return StreamingResponse(
+        iterate_in_threadpool(iter_mod_tar(folder)),
+        media_type="application/x-tar",
+        headers={"Content-Length": str(tar_size(folder)), "Cache-Control": "no-store"},
     )
 
 

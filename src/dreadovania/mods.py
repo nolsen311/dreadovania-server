@@ -12,10 +12,12 @@ user, and its paths and contents are never logged.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import secrets
 import shutil
 import stat
+import tarfile
 import time
 import zipfile
 from collections.abc import Iterator
@@ -135,3 +137,62 @@ def iter_mod_zip(root: Path) -> Iterator[bytes]:
                     yield sink.take()
             yield sink.take()
     yield sink.take()
+
+
+# ---- the Switch app's download: a manifest and an uncompressed tar (ADR 0018) ----------------
+
+TAR_BLOCK = 512
+
+
+def _tar_name(root: Path, path: Path) -> str:
+    return f"{ZIP_ROOT}/{path.relative_to(root).as_posix()}"
+
+
+def mod_manifest(root: Path) -> list[dict[str, object]]:
+    """Every file the tar will contain, in order: SD card path, size and SHA-256."""
+    files = []
+    for path, st in walk_files(root):
+        digest = hashlib.sha256()
+        with path.open("rb") as source:
+            while chunk := source.read(CHUNK):
+                digest.update(chunk)
+        files.append({"path": _tar_name(root, path), "size": st.st_size,
+                      "sha256": digest.hexdigest()})  # fmt: skip
+    return files
+
+
+def _tar_header(name: str, size: int) -> bytes:
+    info = tarfile.TarInfo(name)
+    info.size = size
+    info.mode = 0o644
+    info.mtime = _ZIP_EPOCH
+    try:
+        # Plain ustar: names up to 255 characters, split into prefix and name, so
+        # the Switch app's reader needs no PAX or GNU extensions.
+        return info.tobuf(format=tarfile.USTAR_FORMAT)
+    except ValueError:
+        raise ModError("a patched file's name is too long to send to the Switch") from None
+
+
+def tar_size(root: Path) -> int:
+    """The exact length of iter_mod_tar's output, for Content-Length."""
+    total = 2 * TAR_BLOCK  # end-of-archive marker
+    for _path, st in walk_files(root):
+        total += TAR_BLOCK + -(-st.st_size // TAR_BLOCK) * TAR_BLOCK
+    return total
+
+
+def iter_mod_tar(root: Path) -> Iterator[bytes]:
+    """Stream the mod as an uncompressed ustar archive, ``atmosphere/…`` at the top."""
+    for path, st in walk_files(root):
+        yield _tar_header(_tar_name(root, path), st.st_size)
+        written = 0
+        with path.open("rb") as source:
+            while chunk := source.read(CHUNK):
+                written += len(chunk)
+                yield chunk
+        if written != st.st_size:
+            raise ModError("a patched file changed while it was being sent")
+        if written % TAR_BLOCK:
+            yield bytes(TAR_BLOCK - written % TAR_BLOCK)
+    yield bytes(2 * TAR_BLOCK)
