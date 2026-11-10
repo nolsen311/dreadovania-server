@@ -7,13 +7,14 @@
   {% if saved %}<p class="ok" role="status">Saved.</p>{% endif %}
   {% if tab.help %}<p class="muted">{{ tab.help }}</p>{% endif %}
   {% if tab.custom == "pickups" %}{% include "_preset_pickups.html" %}{% endif %}
+  {% if tab.custom == "tricks" %}{% include "_preset_tricks.html" %}{% endif %}
   {% for group in tab.groups %}
   <fieldset class="stack">
     <legend>{{ group.title }}</legend>
     {% if group.help %}<p class="muted"><small>{{ group.help }}</small></p>{% endif %}
     {% for s in group.settings %}
     {% set value = values[s.key] %}
-    {% set low, high = s.bounds if s.kind in ("int", "optional_int") else (none, none) %}
+    {% set low, high = s.bounds if s.kind in ("int", "float", "optional_int") else (none, none) %}
     <div class="setting">
       {% if s.kind == "bool" %}
       <label class="check"><input type="checkbox" name="{{ s.key }}" value="on" {% if value %}checked{% endif %}>
@@ -24,10 +25,14 @@
           {% for c in s.choices %}<option value="{{ c.value }}" {% if c.value == value %}selected{% endif %}>{{ c.label }}</option>{% endfor %}
         </select></label>
       {% elif s.kind == "int" %}
-      <label>{{ s.label }}
+      <label>{{ s.label }}{% if s.experimental %} <span class="badge">experimental</span>{% endif %}
         <span><input type="number" class="short" name="{{ s.key }}" value="{{ value }}" required
                {% if low is not none %}min="{{ low }}"{% endif %} {% if high is not none %}max="{{ high }}"{% endif %}>
           {% if s.suffix %}<small>{{ s.suffix }}</small>{% endif %}</span></label>
+      {% elif s.kind == "float" %}
+      <label>{{ s.label }}{% if s.experimental %} <span class="badge">experimental</span>{% endif %}
+        <input type="number" class="short" name="{{ s.key }}" value="{{ value }}" step="0.1" required
+               {% if low is not none %}min="{{ low }}"{% endif %} {% if high is not none %}max="{{ high }}"{% endif %}></label>
       {% elif s.kind == "optional_int" %}
       <label class="check"><input type="checkbox" name="{{ s.key }}.on" value="on" {% if value is not none %}checked{% endif %}>
         {{ s.label }}</label>

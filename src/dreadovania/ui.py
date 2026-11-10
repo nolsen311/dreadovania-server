@@ -534,6 +534,9 @@ def _tab_context(preset: rdv_presets.Preset, tab: rdv_presets.Tab) -> dict[str, 
         "values": {s.key: rdv_presets.form_value(preset, s) for s in tab.settings},
         "warnings": rdv_presets.warnings(preset),
     }
+    if tab.custom == "tricks":
+        context["tricks"] = rdv_presets.trick_view(preset)
+        context["trick_levels"] = rdv_presets.TRICK_LEVELS
     if tab.custom == "pickups":
         view = rdv_presets.pickup_view(preset)
         context["pickups"] = view
