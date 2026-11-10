@@ -21,8 +21,11 @@
   <a href="/presets/{{ preset_id }}/edit?tab={{ t.id }}" {% if t.id == tab.id %}aria-current="page"{% endif %}>{{ t.title }}</a>
   {% endfor %}
 </nav>
-<p class="muted"><small>Coming next: {% for t in tabs if not t.ready %}{{ t.title }}{{ ", " if not loop.last }}{% endfor %}.
+{% set coming = tabs | rejectattr("ready") | list %}
+{% if coming %}
+<p class="muted"><small>Coming next: {% for t in coming %}{{ t.title }}{{ ", " if not loop.last }}{% endfor %}.
   Until then, those settings stay as they are in this preset.</small></p>
+{% endif %}
 
 {% include "_preset_tab.html" %}
 

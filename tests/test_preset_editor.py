@@ -166,7 +166,6 @@ def test_customize_from_the_presets_page(client: TestClient) -> None:
     page = client.get(target).text
     assert "Copy of Starter Preset" in page
     assert 'aria-current="page"' in page
-    assert "Coming next:" in page
 
 
 @pytest.mark.parametrize("tab", [t.id for t in rdv_presets.TABS if t.ready])
@@ -489,3 +488,92 @@ def test_the_location_and_start_pages(client: TestClient) -> None:
     saved = exported(client, pid)["configuration"]["starting_location"]
     intro = {"region": "Artaria", "area": "Intro Room", "node": "Start Point"}
     assert len(saved) == 1 and saved[0] != intro
+
+
+# ---- doors and transporters ---------------------------------------------------------------------
+
+
+def door_form(preset: rdv_presets.Preset) -> dict[str, str]:
+    v = rdv_presets.door_view(preset)
+    form = {"door.mode": v.mode}
+    form.update({key: "on" for key, _name, on in (*v.change_from, *v.change_to) if on})
+    return form
+
+
+def transporter_form(preset: rdv_presets.Preset) -> dict[str, str]:
+    v = rdv_presets.transporter_view(preset)
+    form = {"transporters.form": "1", "transporter.mode": v.mode}
+    for p in v.pairs:
+        if p.shuffled:
+            form[p.key] = "on"
+        if p.partner_key and p.partner_shuffled and not v.two_way:
+            form[p.partner_key] = "on"
+    for rows in v.targets.values():
+        form.update({key: "on" for key, _name, on in rows if on})
+    return form
+
+
+@pytest.mark.parametrize("key", sorted(presets.bundled_dread_presets()))
+def test_doors_and_transporters_save_unchanged(key: str) -> None:
+    preset = bundled(key)
+    assert rdv_presets.apply(preset, "doors", door_form(preset)) == preset
+    assert rdv_presets.apply(preset, "transporters", transporter_form(preset)) == preset
+
+
+def test_every_setting_is_editable_now() -> None:
+    assert rdv_presets.NOT_EDITABLE_YET == {}
+    assert all(t.ready for t in rdv_presets.TABS)
+
+
+def test_door_lock_randomizer() -> None:
+    preset = bundled()
+    form = door_form(preset)
+    form["door.mode"] = "individual-dock"
+    del form["door.to.Wave Beam Door"]
+    changed = rdv_presets.apply(preset, "doors", form)
+    door = rdv_presets.to_json(changed)["configuration"]["dock_weakness_distributor"]
+    assert door["types_state"]["door"]["mode"] == "individual-dock"
+    assert "Wave Beam Door" not in door["types_state"]["door"]["can_change_to"]
+    rdv_presets.check(changed)
+    nothing = {"door.mode": "individual-dock"}
+    with pytest.raises(rdv_presets.PresetProblem, match="at least one lock"):
+        rdv_presets.apply(preset, "doors", nothing)
+
+
+def test_shuffling_transporters() -> None:
+    preset = bundled()
+    view = rdv_presets.transporter_view(preset)
+    assert view.mode == "vanilla" and len(view.pairs) >= 10
+    assert all(p.partner_key for p in view.pairs)  # Dread's transporters come in pairs
+    form = transporter_form(preset)
+    form["transporter.mode"] = "randomized"
+    first = view.pairs[0]
+    form.pop(first.key, None)  # keep the first pair vanilla
+    changed = rdv_presets.apply(preset, "transporters", form)
+    config = changed.configuration.teleporters
+    assert config.mode.value == "randomized"
+    excluded = {n.as_string for n in config.excluded_teleporters.locations}
+    assert {
+        first.key.removeprefix("transporter."),
+        first.partner_key.removeprefix("transporter."),
+    } == excluded
+    rdv_presets.check(changed)
+    form["transporter.mode"] = "echoes-shuffled"  # not offered for Dread
+    with pytest.raises(rdv_presets.PresetProblem, match="choose one of the options"):
+        rdv_presets.apply(preset, "transporters", form)
+    with pytest.raises(rdv_presets.PresetProblem, match="incomplete"):
+        rdv_presets.apply(preset, "transporters", {})
+
+
+def test_the_door_and_transporter_pages(client: TestClient) -> None:
+    pid = copy(client)["id"]
+    page = client.get(f"/presets/{pid}/edit?tab=doors").text
+    assert 'name="door.mode"' in page and "Individually" in page
+    page = client.get(f"/presets/{pid}/edit?tab=transporters").text
+    assert 'name="transporters.form"' in page and "Two-way, between regions" in page
+    assert "Coming next" not in page  # every tab is ready
+    form = transporter_form(bundled())
+    form["transporter.mode"] = "randomized"
+    r = client.post(f"/presets/{pid}/edit/transporters", data=form, headers=HX)
+    assert "Saved." in r.text
+    assert exported(client, pid)["configuration"]["teleporters"]["mode"] == "randomized"

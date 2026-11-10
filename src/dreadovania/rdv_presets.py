@@ -25,6 +25,7 @@ from typing import Any, Literal
 
 from randovania.game.game_enum import RandovaniaGame
 from randovania.game_description import default_database
+from randovania.game_description.db.dock_node import DockNode
 from randovania.game_description.db.pickup_node import PickupNode
 from randovania.game_description.pickup.pickup_entry import StartingPickupBehavior
 from randovania.game_description.resources.location_category import LocationCategory
@@ -37,6 +38,9 @@ from randovania.generator.pickup_pool import pool_creator
 from randovania.layout.base.available_locations import RandomizationMode
 from randovania.layout.base.base_configuration import StartingLocationList
 from randovania.layout.base.damage_strictness import LayoutDamageStrictness
+from randovania.layout.base.dock_weakness_distributor_configuration import (
+    DockWeaknessDistributorMode,
+)
 from randovania.layout.base.logical_pickup_placement_configuration import (
     LogicalPickupPlacementConfiguration,
 )
@@ -51,6 +55,11 @@ from randovania.layout.base.standard_pickup_state import (
 )
 from randovania.layout.base.trick_level import LayoutTrickLevel
 from randovania.layout.generator_parameters import GeneratorParameters
+from randovania.layout.lib.teleporters import (
+    TeleporterList,
+    TeleporterShuffleMode,
+    TeleporterTargetList,
+)
 from randovania.layout.permalink import Permalink
 from randovania.layout.preset import Preset
 from randovania.layout.versioned_preset import VersionedPreset
@@ -327,12 +336,14 @@ TABS: tuple[Tab, ...] = (
         ("standard_pickup_configuration",), ("ammo_pickup_configuration",),
         ("pickup_model_style",), ("pickup_model_data_source",),
     )),
-    Tab("transporters", "Transporters"),
+    Tab("transporters", "Transporters", custom="transporters", covers=(("teleporters",),),
+        help="Controls where each transporter connects to."),
     Tab("start", "Starting area", custom="start", covers=(("starting_location", "locations"),),
         help="The area where the game starts can be customized, being selected randomly from "
              "this list. Warning: depending on the starting items that are configured, it may "
              "be impossible to start at the chosen place. In that case, generation will fail."),
-    Tab("doors", "Doors"),
+    Tab("doors", "Doors", custom="doors", covers=(("dock_weakness_distributor",),),
+        help="Door lock randomizer: which locks doors can have."),
     Tab("energy", "Energy", (
         Group("Energy Part", (
             Setting(("immediate_energy_parts",), "Immediate Energy Part", "bool",
@@ -423,10 +434,7 @@ TABS: tuple[Tab, ...] = (
 
 # Settings that aren't editable here, and why. The coverage test requires every
 # DreadConfiguration field to be editable or listed here (ADR 0019 §4).
-NOT_EDITABLE_YET: dict[str, str] = {
-    "dock_weakness_distributor": "the Doors tab, in a later version",
-    "teleporters": "the Transporters tab, in a later version",
-}
+NOT_EDITABLE_YET: dict[str, str] = {}
 NOT_OFFERED: dict[str, str] = {
     "hints.specific_pickup_hints": "Randovania defines no specific pickup hints for Dread yet",
     "single_set_for_pickups_that_solve": "a generator detail Randovania's app doesn't offer",
@@ -497,6 +505,10 @@ def apply(preset: Preset, tab_id: str, form: Mapping[str, str]) -> Preset:
         return apply_locations(preset, form)
     if found.custom == "start":
         return apply_start(preset, form)
+    if found.custom == "doors":
+        return apply_doors(preset, form)
+    if found.custom == "transporters":
+        return apply_transporters(preset, form)
     config = preset.configuration
     for setting in found.settings:
         config = _set(config, setting.path, _parse(setting, config, form))
@@ -1029,6 +1041,198 @@ def apply_start(preset: Preset, form: Mapping[str, str]) -> Preset:
         raise PresetProblem(_reason(exc)) from None
 
 
+# ---- doors and transporters (Randovania's door lock and transporter tabs) --------------------
+
+TRANSPORTER_MODES: dict[TeleporterShuffleMode, str] = {
+    TeleporterShuffleMode.VANILLA: "All transporters are connected to where they do in the "
+    "original game.",
+    TeleporterShuffleMode.TWO_WAY_RANDOMIZED: "After taking a transporter, the transporter in "
+    "the room you are in will bring you back to where you were. A transporter will never "
+    "connect to another in the same region. This is the only non-vanilla setting which "
+    "guarantees that all regions are reachable.",
+    TeleporterShuffleMode.TWO_WAY_UNCHECKED: "After taking a transporter, the transporter in "
+    "the room you are in will bring you back to where you were.",
+    TeleporterShuffleMode.ONE_WAY_TELEPORTER: "All transporters bring you to an elevator room, "
+    "but going backwards can go somewhere else. All rooms are used as a destination exactly "
+    "once, causing all transporters to be separated into loops.",
+    TeleporterShuffleMode.ONE_WAY_TELEPORTER_REPLACEMENT: "All transporters bring you to an "
+    "elevator room, but going backwards can go somewhere else. Rooms can be used as a "
+    "destination multiple times, causing transporters which you can possibly not come back to.",
+}  # the modes Randovania's app offers for Dread, with its wording
+_TWO_WAY = (TeleporterShuffleMode.TWO_WAY_RANDOMIZED, TeleporterShuffleMode.TWO_WAY_UNCHECKED)
+
+
+@dataclass(frozen=True)
+class DoorView:
+    mode: str
+    modes: tuple[Choice, ...]
+    change_from: tuple[tuple[str, str, bool], ...]  # (form key, lock, ticked)
+    change_to: tuple[tuple[str, str, bool], ...]
+
+
+def _door_state(preset: Preset) -> tuple[Any, Any]:
+    states = preset.configuration.dock_weakness_distributor.types_state
+    dock_type = next(t for t in states if t.short_name == "door")
+    return dock_type, states[dock_type]
+
+
+def door_view(preset: Preset) -> DoorView:
+    _dock_type, state = _door_state(preset)
+    game = RandovaniaGame.METROID_DREAD
+    return DoorView(
+        mode=state.mode.value,
+        modes=tuple(Choice(m.value, f"{m.long_name}: {m.description}")
+                    for m in DockWeaknessDistributorMode),
+        change_from=tuple((f"door.from.{w.name}", w.name, w in state.can_change_from)
+                          for w in sorted(state.possible_change_from(game), key=lambda w: w.name)),
+        change_to=tuple((f"door.to.{w.name}", w.name, w in state.can_change_to)
+                        for w in sorted(state.possible_change_to(game), key=lambda w: w.name)),
+    )  # fmt: skip
+
+
+def apply_doors(preset: Preset, form: Mapping[str, str]) -> Preset:
+    dock_type, state = _door_state(preset)
+    game = RandovaniaGame.METROID_DREAD
+    try:
+        mode = DockWeaknessDistributorMode(form.get("door.mode", state.mode.value))
+    except ValueError:
+        raise PresetProblem("Doors: choose one of the options") from None
+    change_from = {w for w in state.possible_change_from(game) if f"door.from.{w.name}" in form}
+    change_to = {w for w in state.possible_change_to(game) if f"door.to.{w.name}" in form}
+    if mode != DockWeaknessDistributorMode.ORIGINAL and not (change_from and change_to):
+        raise PresetProblem("Doors: choose at least one lock to change from and one to change to")
+    new = dataclasses.replace(
+        state, mode=mode, can_change_from=change_from, can_change_to=change_to
+    )
+    distributor = preset.configuration.dock_weakness_distributor
+    types_state = {**distributor.types_state, dock_type: new}
+    try:
+        changed = dataclasses.replace(
+            preset.configuration,
+            dock_weakness_distributor=dataclasses.replace(distributor, types_state=types_state),
+        )
+        return dataclasses.replace(preset, configuration=changed)
+    except (ValueError, TypeError) as exc:
+        raise PresetProblem(_reason(exc)) from None
+
+
+@dataclass(frozen=True)
+class TransporterPair:
+    key: str  # the form field for the first transporter
+    partner_key: str  # "" when it has no partner
+    name: str
+    partner: str
+    shuffled: bool
+    partner_shuffled: bool
+
+
+@dataclass(frozen=True)
+class TransporterView:
+    mode: str
+    modes: tuple[Choice, ...]
+    pairs: tuple[TransporterPair, ...]
+    two_way: bool
+    targets: dict[str, list[tuple[str, str, bool]]]  # region -> (form key, area / node, allowed)
+
+
+def _transporter_pairs() -> list[tuple[Any, Any]]:
+    """(transporter, the transporter it connects to in the original game), as Randovania's app."""
+    game = _game()
+    region_list = game.region_list
+    dock_types = game.dock_type_database.all_teleporter_dock_types
+    sources = TeleporterList.nodes_list(RandovaniaGame.METROID_DREAD)
+    pairs, seen = [], set()
+    for source in sorted(sources, key=lambda n: n.as_string):
+        if source in seen:
+            continue
+        seen.add(source)
+        area = region_list.area_by_area_location(source.area_identifier)
+        others = [n.default_connection for n in area.nodes
+                  if isinstance(n, DockNode) and n.dock_type in dock_types
+                  and n.identifier == source]  # fmt: skip
+        partner = None
+        if others:
+            target_area = region_list.area_by_area_location(others[0].area_identifier)
+            in_target = [n.identifier for n in target_area.nodes
+                         if isinstance(n, DockNode) and n.dock_type in dock_types]  # fmt: skip
+            if in_target and in_target[0] in sources and in_target[0] not in seen:
+                partner = in_target[0]
+                seen.add(partner)
+        pairs.append((source, partner))
+    return pairs
+
+
+def _label(node: Any) -> str:
+    return f"{node.region} / {node.area}"
+
+
+def transporter_view(preset: Preset) -> TransporterView:
+    config = preset.configuration.teleporters
+    excluded = set(config.excluded_teleporters.locations)
+    pairs = tuple(
+        TransporterPair(
+            key=f"transporter.{a.as_string}",
+            partner_key=f"transporter.{b.as_string}" if b else "",
+            name=_label(a),
+            partner=_label(b) if b else "",
+            shuffled=a not in excluded,
+            partner_shuffled=b is not None and b not in excluded,
+        )
+        for a, b in _transporter_pairs()
+    )
+    targets: dict[str, list[tuple[str, str, bool]]] = {}
+    excluded_targets = set(config.excluded_targets.locations)
+    for node in TeleporterTargetList.nodes_list(RandovaniaGame.METROID_DREAD):
+        targets.setdefault(node.region, []).append(
+            (f"target.{node.as_string}", f"{node.area} / {node.node}", node not in excluded_targets)
+        )
+    return TransporterView(
+        mode=config.mode.value,
+        modes=tuple(Choice(m.value, m.long_name) for m in TRANSPORTER_MODES),
+        pairs=pairs,
+        two_way=config.mode in _TWO_WAY,
+        targets=targets,
+    )
+
+
+def apply_transporters(preset: Preset, form: Mapping[str, str]) -> Preset:
+    if "transporters.form" not in form:  # every row is sent; a partial form would exclude all
+        raise PresetProblem("the form was incomplete: reload the page and try again")
+    config = preset.configuration.teleporters
+    try:
+        mode = TeleporterShuffleMode(form.get("transporter.mode", config.mode.value))
+    except ValueError:
+        raise PresetProblem("Transporters: choose one of the options") from None
+    if mode not in TRANSPORTER_MODES:
+        raise PresetProblem("Transporters: choose one of the options")
+    excluded = []
+    for a, b in _transporter_pairs():
+        a_on = f"transporter.{a.as_string}" in form
+        # Two-way modes move a pair together, as Randovania's app does.
+        b_on = a_on if mode in _TWO_WAY else f"transporter.{b.as_string}" in form if b else False
+        if not a_on:
+            excluded.append(a)
+        if b is not None and not b_on:
+            excluded.append(b)
+    game = RandovaniaGame.METROID_DREAD
+    excluded_targets = [
+        node for node in TeleporterTargetList.nodes_list(game)
+        if f"target.{node.as_string}" not in form
+    ]  # fmt: skip
+    try:
+        new = dataclasses.replace(
+            config,
+            mode=mode,
+            excluded_teleporters=TeleporterList.with_elements(excluded, game),
+            excluded_targets=TeleporterTargetList.with_elements(excluded_targets, game),
+        )
+        return dataclasses.replace(
+            preset, configuration=dataclasses.replace(preset.configuration, teleporters=new)
+        )
+    except (ValueError, TypeError) as exc:
+        raise PresetProblem(_reason(exc)) from None
+
+
 def coverage() -> dict[str, list[str]]:
     """Which DreadConfiguration fields are editable here, and which aren't (and why)."""
     editable = {s.path for t in TABS for s in t.settings} | {p for t in TABS for p in t.covers}
@@ -1068,15 +1272,18 @@ __all__ = [
     "Setting",
     "Tab",
     "apply",
+    "apply_doors",
     "apply_locations",
     "apply_pickups",
     "apply_start",
+    "apply_transporters",
     "apply_tricks",
     "check",
     "copy_of",
     "coverage",
     "description_markup",
     "description_text",
+    "door_view",
     "form_value",
     "load",
     "location_view",
@@ -1086,6 +1293,7 @@ __all__ = [
     "start_view",
     "tab",
     "to_json",
+    "transporter_view",
     "trick_view",
     "warnings",
 ]
