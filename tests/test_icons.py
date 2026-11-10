@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from dreadovania.app import create_app
+from dreadovania.config import Settings
 
 STATIC = Path(__file__).parent.parent / "src" / "dreadovania" / "static"
 
@@ -32,8 +33,8 @@ def test_the_manifest_offers_maskable_and_monochrome_icons() -> None:
     assert any(i["purpose"] == "maskable" and i["sizes"] == "512x512" for i in manifest["icons"])
 
 
-def test_icons_are_served_and_linked() -> None:
-    with TestClient(create_app()) as client:
+def test_icons_are_served_and_linked(tmp_path: Path) -> None:
+    with TestClient(create_app(Settings(data_dir=tmp_path / "data"))) as client:
         for path in (
             "/static/icons/maskable-512.png",
             "/static/icons/monochrome-192.png",
