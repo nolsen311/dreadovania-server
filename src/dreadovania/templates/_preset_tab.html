@@ -8,6 +8,10 @@
   {% if tab.help %}<p class="muted">{{ tab.help }}</p>{% endif %}
   {% if tab.custom == "pickups" %}{% include "_preset_pickups.html" %}{% endif %}
   {% if tab.custom == "tricks" %}{% include "_preset_tricks.html" %}{% endif %}
+  {% if tab.custom == "locations" %}{% include "_preset_locations.html" %}{% endif %}
+  {% if tab.custom == "start" %}{% include "_preset_start.html" %}{% endif %}
+  {% if tab.custom == "doors" %}{% include "_preset_doors.html" %}{% endif %}
+  {% if tab.custom == "transporters" %}{% include "_preset_transporters.html" %}{% endif %}
   {% for group in tab.groups %}
   <fieldset class="stack">
     <legend>{{ group.title }}</legend>

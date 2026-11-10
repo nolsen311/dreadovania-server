@@ -1,0 +1,19 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{# The Doors tab (ADR 0019): Randovania's door lock randomizer, for Dread's one door type. #}
+{% set d = doors %}
+<label>Door locks
+  <select name="door.mode">
+    {% for m in d.modes %}<option value="{{ m.value }}" {% if m.value == d.mode %}selected{% endif %}>{{ m.label }}</option>{% endfor %}
+  </select></label>
+<details class="card-in" {% if d.mode != "original" %}open{% endif %}>
+  <summary>Locks that can be changed <small>({{ d.change_from | selectattr(2) | list | length }}/{{ d.change_from | length }})</small></summary>
+  <div class="stack">
+    {% for key, name, on in d.change_from %}<label class="check"><input type="checkbox" name="{{ key }}" value="on" {% if on %}checked{% endif %}> {{ name }}</label>{% endfor %}
+  </div>
+</details>
+<details class="card-in" {% if d.mode != "original" %}open{% endif %}>
+  <summary>Locks they can become <small>({{ d.change_to | selectattr(2) | list | length }}/{{ d.change_to | length }})</small></summary>
+  <div class="stack">
+    {% for key, name, on in d.change_to %}<label class="check"><input type="checkbox" name="{{ key }}" value="on" {% if on %}checked{% endif %}> {{ name }}</label>{% endfor %}
+  </div>
+</details>

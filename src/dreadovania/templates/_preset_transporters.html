@@ -1,0 +1,33 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{# The Transporters tab (ADR 0019): where each transporter connects to. #}
+{% set t = transporters %}
+<input type="hidden" name="transporters.form" value="1">
+<label>Transporters
+  <select name="transporter.mode">
+    {% for m in t.modes %}<option value="{{ m.value }}" {% if m.value == t.mode %}selected{% endif %}>{{ m.label }}</option>{% endfor %}
+  </select></label>
+<small class="help">{{ mode_help }}</small>
+<details class="card-in" {% if t.mode != "vanilla" %}open{% endif %}>
+  <summary>Transporters that are shuffled</summary>
+  <div class="stack">
+    <p class="muted"><small>Unticked ones keep their original connection.
+      {% if t.two_way %}In two-way modes a pair moves together: tick the first of each pair.{% endif %}</small></p>
+    {% for p in t.pairs %}
+    <div class="setting pickup">
+      <label class="check"><input type="checkbox" name="{{ p.key }}" value="on" {% if p.shuffled %}checked{% endif %}> {{ p.name }}</label>
+      {% if p.partner_key %}
+      <label class="check indent"><input type="checkbox" name="{{ p.partner_key }}" value="on" {% if p.partner_shuffled %}checked{% endif %} {% if t.two_way %}disabled{% endif %}> ↔ {{ p.partner }}</label>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</details>
+<details class="card-in">
+  <summary>Possible destinations <small>(one-way modes only)</small></summary>
+  <div class="stack">
+    {% for region, rows in t.targets.items() %}
+    <strong>{{ region }}</strong>
+    {% for key, name, on in rows %}<label class="check"><input type="checkbox" name="{{ key }}" value="on" {% if on %}checked{% endif %}> {{ name }}</label>{% endfor %}
+    {% endfor %}
+  </div>
+</details>
