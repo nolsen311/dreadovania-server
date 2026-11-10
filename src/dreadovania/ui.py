@@ -37,6 +37,7 @@ from dreadovania.validation import InvalidInput
 
 HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=HERE / "templates")
+templates.env.filters["preset_text"] = rdv_presets.description_text
 router = APIRouter(include_in_schema=False)
 
 MAX_FORM_BYTES = 16 * 1024
@@ -560,7 +561,9 @@ async def preset_edit_about(preset_id: str, request: Request) -> Response:
     try:
         preset = _editable(request, user, preset_id)
         updated = rdv_presets.renamed(
-            preset, form.get("name", "").strip(), form.get("description", "").strip()
+            preset,
+            form.get("name", "").strip(),
+            rdv_presets.description_markup(form.get("description", "")),
         )
         await run_in_threadpool(store.save, user.user_id, preset_id, updated)
     except (PresetProblem, LookupError) as exc:

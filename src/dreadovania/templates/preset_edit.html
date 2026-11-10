@@ -9,7 +9,7 @@
       hx-post="/presets/{{ preset_id }}/edit/about" hx-target="#messages" hx-disabled-elt="find button">
   <label>Name <input name="name" maxlength="100" required value="{{ preset_name }}"></label>
   <label>Description <small>(optional)</small>
-    <textarea name="description" maxlength="2000" rows="3">{{ description }}</textarea></label>
+    <textarea name="description" maxlength="2000" rows="4">{{ description | preset_text }}</textarea></label>
   <button type="submit">Save name and description</button>
 </form>
 

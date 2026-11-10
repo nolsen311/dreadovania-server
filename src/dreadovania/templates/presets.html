@@ -14,7 +14,7 @@
   {% for p in presets %}
   <li class="row">
     <span><strong>{{ p.name }}</strong> {% if p.builtin %}<span class="badge">built in</span>{% endif %}
-      {% if p.description %}<br><small>{{ p.description }}</small>{% endif %}</span>
+      {% if p.description %}<br><small class="lines">{{ p.description | preset_text }}</small>{% endif %}</span>
     <span class="actions">
       {% if not p.builtin %}<a class="button small" href="/presets/{{ p.id }}/edit">Edit</a>{% endif %}
       <form class="inline" hx-post="/presets/{{ p.id }}/copy">

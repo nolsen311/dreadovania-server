@@ -217,6 +217,8 @@ def test_renaming(client: TestClient) -> None:
     assert r.status_code == 204
     assert client.get(f"/api/v1/presets/{pid}").json()["name"] == "Nate's"
     assert exported(client, pid)["description"] == "Mine"
+    client.post(f"/presets/{pid}/edit/about", data={"name": "N", "description": "a\nb"}, headers=HX)
+    assert exported(client, pid)["description"] == "a<br/>b"
     r = client.post(f"/presets/{pid}/edit/about", data={"name": " "}, headers=HX)
     assert "needs a name" in r.text
 
@@ -225,3 +227,18 @@ def test_bundled_presets_have_no_editor(client: TestClient) -> None:
     assert client.get("/presets/starter_preset/edit").status_code == 404
     r = client.post("/presets/starter_preset/edit/energy", data={}, headers=HX)
     assert r.status_code == 404
+
+
+def test_descriptions_are_shown_as_lines() -> None:
+    assert (
+        rdv_presets.description_text("One.<br/><br/>Two &amp; <b>three</b>")
+        == "One.\n\nTwo & three"
+    )
+    assert (
+        rdv_presets.description_markup("One.\n\nTwo & <b>") == "One.<br/><br/>Two &amp; &lt;b&gt;"
+    )
+
+
+def test_the_presets_page_has_no_raw_markup(client: TestClient) -> None:
+    page = client.get("/presets").text
+    assert "&lt;br/&gt;" not in page and "<br/><br/>" not in page

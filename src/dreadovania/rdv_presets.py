@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import dataclasses
 import enum
+import html
+import re
 import typing
 import uuid
 from collections.abc import Mapping
@@ -64,6 +66,22 @@ def copy_of(source: Preset, name: str) -> Preset:
     """A new preset with the same settings, as Randovania's "Customize" does: a new
     name and UUID. (Randovania 12 no longer records which preset it came from.)"""
     return dataclasses.replace(source, name=name, uuid=uuid.uuid4())
+
+
+_BREAK = re.compile(r"<br\s*/?>|</p>", re.IGNORECASE)
+_TAG = re.compile(r"<[^>]*>")
+
+
+def description_text(description: str) -> str:
+    """Randovania's descriptions are rich text (``<br/>`` for line breaks): plain lines."""
+    text = _TAG.sub("", _BREAK.sub("\n", description))
+    return html.unescape(text).strip()
+
+
+def description_markup(text: str) -> str:
+    """Plain lines back into Randovania's form, so its desktop app shows the breaks."""
+    lines = [html.escape(line.rstrip(), quote=False) for line in text.strip().splitlines()]
+    return "<br/>".join(lines)
 
 
 def renamed(preset: Preset, name: str, description: str) -> Preset:
@@ -478,6 +496,8 @@ __all__ = [
     "check",
     "copy_of",
     "coverage",
+    "description_markup",
+    "description_text",
     "form_value",
     "load",
     "renamed",
