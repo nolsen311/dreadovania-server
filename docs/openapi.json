@@ -777,6 +777,43 @@
         "title": "RomfsOut",
         "type": "object"
       },
+      "SavedPreset": {
+        "properties": {
+          "builtin": {
+            "title": "Builtin",
+            "type": "boolean"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "warnings": {
+            "description": "Randovania's warnings about these settings (dangerous settings, unsupported features). They don't stop the preset from being used.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "builtin",
+          "warnings"
+        ],
+        "title": "SavedPreset",
+        "type": "object"
+      },
       "SeedOut": {
         "properties": {
           "completed_at": {
@@ -2194,6 +2231,131 @@
           }
         },
         "summary": "Get Preset",
+        "tags": [
+          "presets"
+        ]
+      },
+      "put": {
+        "description": "Replace one of your presets with a whole `.rdvpreset` (max 1 MB).\n\nRandovania checks it first; if it refuses, nothing changes. Bundled presets\ncan't be changed: copy one first.",
+        "operationId": "replace_preset_api_v1_presets__preset_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "preset_id",
+            "required": true,
+            "schema": {
+              "title": "Preset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedPreset"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Replace Preset",
+        "tags": [
+          "presets"
+        ]
+      }
+    },
+    "/api/v1/presets/{preset_id}/copy": {
+      "post": {
+        "description": "Copy any preset into a new one of yours, to edit (ADR 0019).",
+        "operationId": "copy_preset_api_v1_presets__preset_id__copy_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "preset_id",
+            "required": true,
+            "schema": {
+              "title": "Preset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Copy Preset",
+        "tags": [
+          "presets"
+        ]
+      }
+    },
+    "/api/v1/presets/{preset_id}/rdvpreset": {
+      "get": {
+        "description": "Download a preset as a `.rdvpreset`, to open in Randovania's desktop app.",
+        "operationId": "export_preset_api_v1_presets__preset_id__rdvpreset_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "preset_id",
+            "required": true,
+            "schema": {
+              "title": "Preset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Preset",
         "tags": [
           "presets"
         ]

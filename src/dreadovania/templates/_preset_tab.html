@@ -1,0 +1,50 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+<form id="tab-form" class="card stack" method="post" action="/presets/{{ preset_id }}/edit/{{ tab.id }}"
+      hx-post="/presets/{{ preset_id }}/edit/{{ tab.id }}" hx-target="this" hx-swap="outerHTML"
+      hx-disabled-elt="find button[type=submit]">
+  <h2>{{ tab.title }}</h2>
+  {% if error %}<p class="error" role="alert">Not saved: {{ error }}</p>{% endif %}
+  {% if saved %}<p class="ok" role="status">Saved.</p>{% endif %}
+  {% if tab.help %}<p class="muted">{{ tab.help }}</p>{% endif %}
+  {% for group in tab.groups %}
+  <fieldset class="stack">
+    <legend>{{ group.title }}</legend>
+    {% if group.help %}<p class="muted"><small>{{ group.help }}</small></p>{% endif %}
+    {% for s in group.settings %}
+    {% set value = values[s.key] %}
+    {% set low, high = s.bounds if s.kind in ("int", "optional_int") else (none, none) %}
+    <div class="setting">
+      {% if s.kind == "bool" %}
+      <label class="check"><input type="checkbox" name="{{ s.key }}" value="on" {% if value %}checked{% endif %}>
+        {{ s.label }}{% if s.experimental %} <span class="badge">experimental</span>{% endif %}</label>
+      {% elif s.kind == "choice" %}
+      <label>{{ s.label }}{% if s.experimental %} <span class="badge">experimental</span>{% endif %}
+        <select name="{{ s.key }}">
+          {% for c in s.choices %}<option value="{{ c.value }}" {% if c.value == value %}selected{% endif %}>{{ c.label }}</option>{% endfor %}
+        </select></label>
+      {% elif s.kind == "int" %}
+      <label>{{ s.label }}
+        <span><input type="number" class="short" name="{{ s.key }}" value="{{ value }}" required
+               {% if low is not none %}min="{{ low }}"{% endif %} {% if high is not none %}max="{{ high }}"{% endif %}>
+          {% if s.suffix %}<small>{{ s.suffix }}</small>{% endif %}</span></label>
+      {% elif s.kind == "optional_int" %}
+      <label class="check"><input type="checkbox" name="{{ s.key }}.on" value="on" {% if value is not none %}checked{% endif %}>
+        {{ s.label }}</label>
+      <label class="indent"><span class="visually-hidden">{{ s.label }}: amount</span>
+        <span><input type="number" class="short" name="{{ s.key }}.value" value="{{ value if value is not none else 20 }}"
+               {% if low is not none %}min="{{ low }}"{% endif %} {% if high is not none %}max="{{ high }}"{% endif %}>
+          {% if s.suffix %}<small>{{ s.suffix }}</small>{% endif %}</span></label>
+      {% endif %}
+      {% if s.help %}<small class="help">{{ s.help }}{% if s.ours %} <em>(Not in Randovania's app.)</em>{% endif %}</small>{% endif %}
+    </div>
+    {% endfor %}
+  </fieldset>
+  {% endfor %}
+  <button type="submit" class="primary">Save {{ tab.title | lower }}</button>
+  {% if warnings %}
+  <div class="warnings">
+    <p><strong>Randovania's warnings</strong> <small>(the preset still works)</small></p>
+    <ul>{% for w in warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+</form>

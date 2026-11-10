@@ -13,14 +13,16 @@ from dataclasses import asdict
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Request, Response, status
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 
+from dreadovania import rdv_presets
 from dreadovania.jobs import CannotPatch, CannotSend, JobQueue, QueueFull
 from dreadovania.mods import ModError, iter_mod_tar, iter_mod_zip, mod_manifest, tar_size
 from dreadovania.presets import MAX_PRESET_BYTES, PresetInfo, PresetStore
 from dreadovania.problems import ApiProblem
+from dreadovania.rdv_presets import PresetProblem
 from dreadovania.romfs import SUPPORTED_VERSIONS, RomfsStatus, State
 from dreadovania.romfs_upload import (
     OffsetMismatch,
@@ -361,16 +363,9 @@ def list_presets(request: Request, user: CurrentUser) -> list[PresetOut]:
 @router.post("/presets", status_code=status.HTTP_201_CREATED, tags=["presets"])
 async def import_preset(request: Request, user: CurrentUser) -> PresetOut:
     """Import a `.rdvpreset` file. Send the file's JSON as the request body (max 1 MB)."""
-    declared = request.headers.get("content-length")
-    if declared and declared.isdigit() and int(declared) > MAX_PRESET_BYTES:
-        raise ApiProblem(413, "Preset too large", "presets can be at most 1 MB")
-    raw = bytearray()
-    async for chunk in request.stream():
-        raw.extend(chunk)
-        if len(raw) > MAX_PRESET_BYTES:
-            raise ApiProblem(413, "Preset too large", "presets can be at most 1 MB")
+    raw = await _read_preset_body(request)
     try:
-        info = await run_in_threadpool(_presets(request).import_preset, user.user_id, bytes(raw))
+        info = await run_in_threadpool(_presets(request).import_preset, user.user_id, raw)
     except InvalidInput as exc:
         raise ApiProblem(400, "Invalid preset", str(exc)) from None
     return PresetOut.of(info)
@@ -382,6 +377,84 @@ def get_preset(preset_id: str, request: Request, user: CurrentUser) -> PresetOut
     if info is None:
         raise _not_found("Preset")
     return PresetOut.of(info)
+
+
+async def _read_preset_body(request: Request) -> bytes:
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_PRESET_BYTES:
+        raise ApiProblem(413, "Preset too large", "presets can be at most 1 MB")
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > MAX_PRESET_BYTES:
+            raise ApiProblem(413, "Preset too large", "presets can be at most 1 MB")
+    return bytes(raw)
+
+
+class SavedPreset(PresetOut):
+    warnings: list[str] = Field(
+        description="Randovania's warnings about these settings (dangerous settings, "
+        "unsupported features). They don't stop the preset from being used."
+    )
+
+
+@router.post("/presets/{preset_id}/copy", status_code=status.HTTP_201_CREATED, tags=["presets"])
+def copy_preset(preset_id: str, request: Request, user: CurrentUser) -> PresetOut:
+    """Copy any preset into a new one of yours, to edit (ADR 0019)."""
+    try:
+        info = _presets(request).copy(user.user_id, preset_id)
+    except PresetProblem as exc:
+        raise ApiProblem(409, "Can't copy this preset", str(exc)) from None
+    if info is None:
+        raise _not_found("Preset")
+    return PresetOut.of(info)
+
+
+@router.put("/presets/{preset_id}", tags=["presets"])
+async def replace_preset(preset_id: str, request: Request, user: CurrentUser) -> SavedPreset:
+    """Replace one of your presets with a whole `.rdvpreset` (max 1 MB).
+
+    Randovania checks it first; if it refuses, nothing changes. Bundled presets
+    can't be changed: copy one first.
+    """
+    store = _presets(request)
+    current = store.get(user.user_id, preset_id)
+    if current is None:
+        raise _not_found("Preset")
+    if current.builtin:
+        raise ApiProblem(409, "Bundled preset", "bundled presets can't be changed: copy it first")
+    raw = await _read_preset_body(request)
+    try:
+        warnings = await run_in_threadpool(store.replace, user.user_id, preset_id, raw)
+    except PresetProblem as exc:
+        raise ApiProblem(400, "Invalid preset", str(exc)) from None
+    except LookupError:
+        raise _not_found("Preset") from None
+    info = store.get(user.user_id, preset_id)
+    if info is None:  # deleted meanwhile
+        raise _not_found("Preset")
+    return SavedPreset(**PresetOut.of(info).model_dump(), warnings=warnings)
+
+
+@router.get(
+    "/presets/{preset_id}/rdvpreset",
+    tags=["presets"],
+    response_class=JSONResponse,
+    responses={200: {"content": {"application/json": {}}}},
+)
+def export_preset(preset_id: str, request: Request, user: CurrentUser) -> JSONResponse:
+    """Download a preset as a `.rdvpreset`, to open in Randovania's desktop app."""
+    try:
+        preset = _presets(request).load(user.user_id, preset_id)
+    except PresetProblem as exc:
+        raise ApiProblem(409, "Can't export this preset", str(exc)) from None
+    if preset is None:
+        raise _not_found("Preset")
+    label = re.sub(r"[^A-Za-z0-9_-]+", "-", preset.name).strip("-")[:60] or "preset"
+    return JSONResponse(
+        rdv_presets.to_json(preset),
+        headers={"Content-Disposition": f'attachment; filename="{label}.rdvpreset"'},
+    )
 
 
 @router.delete("/presets/{preset_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["presets"])

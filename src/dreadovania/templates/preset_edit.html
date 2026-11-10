@@ -1,0 +1,28 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{% extends "base.html" %}
+{% block title %}{{ preset_name }} · Presets · Dreadovania{% endblock %}
+{% block content %}
+<p><a href="/presets">← Presets</a></p>
+<h1>{{ preset_name }}</h1>
+
+<form id="about-form" class="card stack" method="post" action="/presets/{{ preset_id }}/edit/about"
+      hx-post="/presets/{{ preset_id }}/edit/about" hx-target="#messages" hx-disabled-elt="find button">
+  <label>Name <input name="name" maxlength="100" required value="{{ preset_name }}"></label>
+  <label>Description <small>(optional)</small>
+    <textarea name="description" maxlength="2000" rows="3">{{ description }}</textarea></label>
+  <button type="submit">Save name and description</button>
+</form>
+
+<nav class="tabs" aria-label="Settings">
+  {% for t in tabs if t.ready %}
+  <a href="/presets/{{ preset_id }}/edit?tab={{ t.id }}" {% if t.id == tab.id %}aria-current="page"{% endif %}>{{ t.title }}</a>
+  {% endfor %}
+</nav>
+<p class="muted"><small>Coming next: {% for t in tabs if not t.ready %}{{ t.title }}{{ ", " if not loop.last }}{% endfor %}.
+  Until then, those settings stay as they are in this preset.</small></p>
+
+{% include "_preset_tab.html" %}
+
+<p><a class="button" href="/api/v1/presets/{{ preset_id }}/rdvpreset" download>Export for Randovania</a>
+  <small class="muted">A <code>.rdvpreset</code> file, to open in Randovania's desktop app.</small></p>
+{% endblock %}

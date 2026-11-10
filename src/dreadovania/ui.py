@@ -18,9 +18,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from dreadovania import auth, devices, passkeys
+from dreadovania import auth, devices, passkeys, rdv_presets
 from dreadovania.jobs import CannotPatch, CannotSend, QueueFull
 from dreadovania.problems import ApiProblem
+from dreadovania.rdv_presets import PresetProblem
 from dreadovania.romfs import SUPPORTED_VERSIONS
 from dreadovania.routes_auth import (
     SAFE_METHODS,
@@ -499,6 +500,97 @@ def presets_page(request: Request) -> Response:
     return render(
         request, "presets.html", user=user, presets=request.app.state.presets.list(user.user_id)
     )
+
+
+@router.post("/presets/{preset_id}/copy")
+def preset_copy(preset_id: str, request: Request) -> Response:
+    user = page_session(request)
+    try:
+        info = request.app.state.presets.copy(user.user_id, preset_id)
+    except PresetProblem as exc:
+        return render(request, "_error.html", message=f"Can't copy this preset: {exc}")
+    if info is None:
+        return render(request, "_error.html", status_code=404, message="Preset not found")
+    return go(request, f"/presets/{info.id}/edit")
+
+
+def _editable(request: Request, user: auth.Session, preset_id: str) -> rdv_presets.Preset:
+    """One of the user's own presets, through Randovania; bundled ones aren't edited."""
+    store = request.app.state.presets
+    info = store.get(user.user_id, preset_id)
+    if info is None or info.builtin:
+        raise ApiProblem(404, "Preset not found")
+    preset = store.load(user.user_id, preset_id)
+    if preset is None:  # deleted meanwhile
+        raise ApiProblem(404, "Preset not found")
+    return preset
+
+
+def _tab_context(preset: rdv_presets.Preset, tab: rdv_presets.Tab) -> dict[str, Any]:
+    return {
+        "tab": tab,
+        "values": {s.key: rdv_presets.form_value(preset, s) for s in tab.settings},
+        "warnings": rdv_presets.warnings(preset),
+    }
+
+
+@router.get("/presets/{preset_id}/edit")
+def preset_edit_page(preset_id: str, request: Request, tab: str = "generation") -> Response:
+    user = page_session(request)
+    try:
+        preset = _editable(request, user, preset_id)
+    except ApiProblem:
+        return render(request, "not_found.html", status_code=404, user=user)
+    except PresetProblem as exc:
+        return render(request, "_error.html", status_code=409, message=str(exc))
+    found = rdv_presets.tab(tab)
+    if found is None or not found.ready:
+        found = next(t for t in rdv_presets.TABS if t.ready)
+    return render(
+        request, "preset_edit.html", user=user, preset_id=preset_id, tabs=rdv_presets.TABS,
+        preset_name=preset.name, description=preset.description, **_tab_context(preset, found),
+    )  # fmt: skip
+
+
+@router.post("/presets/{preset_id}/edit/about")
+async def preset_edit_about(preset_id: str, request: Request) -> Response:
+    user = page_session(request)
+    form = await read_form(request)
+    store = request.app.state.presets
+    try:
+        preset = _editable(request, user, preset_id)
+        updated = rdv_presets.renamed(
+            preset, form.get("name", "").strip(), form.get("description", "").strip()
+        )
+        await run_in_threadpool(store.save, user.user_id, preset_id, updated)
+    except (PresetProblem, LookupError) as exc:
+        return render(request, "_error.html", message=f"Not saved: {exc}")
+    return go(request, f"/presets/{preset_id}/edit")
+
+
+@router.post("/presets/{preset_id}/edit/{tab_id}")
+async def preset_edit_tab(preset_id: str, tab_id: str, request: Request) -> Response:
+    user = page_session(request)
+    form = await read_form(request)
+    store = request.app.state.presets
+    found = rdv_presets.tab(tab_id)
+    if found is None or not found.ready:
+        return render(request, "_error.html", status_code=404, message="Settings tab not found")
+    preset = _editable(request, user, preset_id)
+    try:
+        changed = rdv_presets.apply(preset, tab_id, form)
+        await run_in_threadpool(store.save, user.user_id, preset_id, changed)
+    except PresetProblem as exc:
+        return render(
+            request, "_preset_tab.html", preset_id=preset_id, error=str(exc),
+            **_tab_context(preset, found),
+        )  # fmt: skip
+    if not _is_htmx(request):
+        return go(request, f"/presets/{preset_id}/edit?tab={tab_id}")
+    return render(
+        request, "_preset_tab.html", preset_id=preset_id, saved=True,
+        **_tab_context(changed, found),
+    )  # fmt: skip
 
 
 @router.post("/presets/{preset_id}/delete")
