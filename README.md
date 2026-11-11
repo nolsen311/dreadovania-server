@@ -4,15 +4,34 @@ A self-hosted, mobile-friendly web server for generating and patching
 [Randovania](https://github.com/randovania/randovania) seeds for **Metroid Dread**,
 and delivering them to a modded Nintendo Switch.
 
-> **Status:** planning. Nothing here is runnable yet. See [`docs/PLAN.md`](docs/PLAN.md).
+> **Status:** in use. See the [latest release](https://github.com/nolsen311/dreadovania-server/releases/latest)
+> for the container image and what's new. The plan and every decision are in
+> [`docs/PLAN.md`](docs/PLAN.md) and [`docs/adr/`](docs/adr/).
 
-## What it will do
+## What it does
 
-- Generate Dread seeds from presets or permalinks, from your phone.
-- Patch seeds into a ready-to-install mod using **game files you provide yourself**.
-- Download the mod as a zip, or push it straight to your Switch over FTP.
-- Serve an API for the companion Switch app,
-  [`dreadovania-nx`](https://github.com/nolsen311/dreadovania-nx).
+- **Generate** Dread seeds from your phone: from Randovania's presets, your own
+  presets (with a full settings editor), or a permalink. Race seeds have no spoiler.
+- **Patch** a seed into a ready-to-install mod, using **game files you provide
+  yourself** from your own copy of the game.
+- **Install** it: download the mod as a zip, send it to your Switch over FTP, or
+  install it from the Switch with the companion app,
+  [`dreadovania-nx`](https://github.com/nolsen311/dreadovania-nx), which the
+  server also keeps up to date.
+- **Play with friends:** invite them to your server. Each account has its own
+  seeds, presets, game files and Switches, and you race by sharing a permalink.
+- **Sign in** with a password or a passkey, over HTTPS.
+
+## Getting started
+
+1. Run the published image with [`compose.yaml`](compose.yaml), pinned by digest
+   from the [latest release](https://github.com/nolsen311/dreadovania-server/releases/latest),
+   after verifying it (see [`SECURITY.md`](SECURITY.md)).
+2. Open the one-time setup link printed in the server's log, and create your account.
+3. Set up HTTPS and a hostname: [`docs/https.md`](docs/https.md).
+4. Add your game files: [`docs/game-files.md`](docs/game-files.md).
+5. Pair the Switch app from **Account**, and invite friends:
+   [`docs/playing-with-friends.md`](docs/playing-with-friends.md).
 
 ## How this project is built
 
