@@ -47,6 +47,8 @@ DEVICE_ROUTES = frozenset({
     ("GET", "/api/v1/seeds/{seed_id}/mod/manifest"),
     ("GET", "/api/v1/seeds/{seed_id}/mod.tar"),
     ("GET", "/api/v1/jobs/{job_id}"),
+    ("GET", "/api/v1/app/latest"),
+    ("GET", "/api/v1/app/dreadovania.nro"),
 })  # fmt: skip
 
 
