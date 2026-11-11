@@ -92,7 +92,7 @@ going through Cloudflare. Most other users will have the first or second.
 
 ## Pull requests
 
-1. This ADR, and a short note in `docs/https.md` pointing to it.
+1. This ADR.
 2. Server: the built-in CA, certificates per device and browser, revocation,
    the server's own TLS check, the front-door exemptions and the settings page.
 3. Server: the Cloudflare issuer, and the fingerprint check behind a proxy.
