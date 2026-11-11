@@ -90,14 +90,62 @@ going through Cloudflare. Most other users will have the first or second.
    and `sigstore`, becomes a direct dependency for making keys, CSRs, the CA,
    CRLs and `.p12` files.
 
+## Amendments, 2026-11-11 (decided with the maintainer before any code)
+
+These refine the decisions above; where they differ, these apply.
+
+- **Decision 2, issuers: three, not two.**
+  - **Built-in CA**, **Cloudflare**, and **External**: certificates made by the
+    owner's own CA (for example step-ca), uploaded per device as a `.p12`, which
+    the server then hands out like its own.
+  - Let's Encrypt can't be an issuer: it stopped issuing certificates for TLS
+    client authentication in 2026 (default profile from 11 February, the last
+    `tlsclient` profile retired on 8 July). It stays the *server* certificate.
+- **Cloudflare requires authenticated origin pulls.** With the Cloudflare issuer,
+  the proxy behind Cloudflare must accept only Cloudflare's own client
+  certificate (zone-level authenticated origin pulls); otherwise the origin can
+  be reached around the edge's check. The settings page and the recipe say so.
+- **The server's own check uses a second port.** When Dreadovania serves HTTPS
+  itself, uvicorn can't tell the application whether a client presented a
+  certificate, so it can't exempt some paths. The main port (8080) then requires
+  a valid client certificate for every connection, and a **front-door port,
+  8081**, serves only the front-door paths without one and answers 404 to
+  everything else. Both can be remapped in Docker. Behind a proxy or Cloudflare,
+  the front door is exempted by path instead, and 8081 isn't used.
+- **Decision 4, the front door, made precise:**
+  - `POST /api/v1/devices/pair` (the Switch app calls nothing else before it is
+    paired; the pairing code itself is made on the Account page, which needs a
+    certificate);
+  - the invite page and `POST /api/v1/invites/accept`, which now also hands the
+    new member's browser its certificate, as pairing does for a Switch, so a
+    friend isn't locked out right after joining;
+  - the static files those pages use.
+  - First-run setup is **closed** while secure remote access is on: it can only
+    be turned on once setup is done. `/api/v1/info`, sign-in, passkeys and app
+    updates all need a certificate.
+- **Lifetimes and rotation.**
+  - **Switch:** 47 days by default (configurable). The app renews its own
+    certificate once a third of its lifetime is left, over a connection that
+    already uses its current certificate and token; the old one is revoked once
+    the new one has been used, so the count of active certificates (and
+    Cloudflare's 100-per-zone limit) doesn't grow.
+  - **Browsers:** 1 year by default (configurable), because a browser can't
+    install a certificate by itself; the web UI shows a banner 30 days before
+    expiry with a one-click download of the replacement.
+- **Limits:** 100 active Cloudflare certificates per zone is enough for the
+  maintainer's devices and friends.
+
 ## Pull requests
 
 1. This ADR.
 2. Server: the built-in CA, certificates per device and browser, revocation,
-   the server's own TLS check, the front-door exemptions and the settings page.
-3. Server: the Cloudflare issuer, and the fingerprint check behind a proxy.
-4. App: certificates from pairing, stored per server and presented on every
-   connection; a hardware check against a Cloudflare-proxied server.
+   rotation, the server's own TLS check with the front-door port, and the
+   settings page.
+3. Server: the Cloudflare and External issuers, and the fingerprint check
+   behind a proxy.
+4. App: certificates from pairing, stored per server, presented on every
+   connection and renewed automatically; first, a hardware check against a
+   Cloudflare-proxied server.
 5. Docs: recipes for HAProxy (`verify required ca-file … crl-file …`,
    authenticated origin pulls) and Cloudflare (the mTLS hostname, the WAF rule,
    the API token).
