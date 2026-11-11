@@ -30,9 +30,14 @@ The Switch already trusts its server (HTTPS with the server's certificate,
    `nolsen311/dreadovania-nx`'s `release.yml` on the release's tag. This is the
    check `gh attestation verify` does, so a tampered release or a substituted
    file is refused even though the checksum comes from the same release. It uses
-   the `sigstore` Python library (a new dependency, for exactly this). Only a
-   verified `.nro` is ever served; an unverified one is deleted and the reason
-   logged.
+   the `sigstore` Python library (a new dependency, for exactly this), with the
+   Sigstore trust root built into the library (its offline mode), so the server
+   contacts only GitHub; the trust root is updated whenever Dependabot bumps
+   `sigstore`. Only a verified `.nro` is ever served; an unverified one is
+   deleted and the reason logged.
+   - Checked before writing this: the real `v0.4.0` release verifies (the
+     signature covers the `.nro`'s exact SHA-256, signed by `release.yml` on tag
+     `v0.4.0`), and asking for another tag is refused.
 3. **Two routes for the app, open to device tokens:**
    - `GET /api/v1/app/latest`: `{version, size, sha256, minimum_version}`, or
      `{available: false, reason}` when there is no verified release (offline,
@@ -71,7 +76,11 @@ The Switch already trusts its server (HTTPS with the server's certificate,
 
 - Updating the app becomes: open it, press the update button.
 - The server now contacts `api.github.com` and GitHub's release downloads, every
-  6 hours at most while the app is in use, unless turned off.
+  6 hours at most while the app is in use, unless turned off. It doesn't need
+  to reach Sigstore's servers.
+- If Sigstore rotates its trust root before `sigstore` is updated here,
+  verification fails and no update is offered (it never falls back to
+  unverified); the next `sigstore` bump fixes it.
 - A new server dependency (`sigstore`) and its own dependencies.
 - The app trusts the server to have verified the release; a compromised server
   could serve a bad app. It could already send the Switch a bad seed, so this
