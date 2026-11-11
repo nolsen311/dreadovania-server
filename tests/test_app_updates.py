@@ -119,6 +119,22 @@ def test_nothing_unverified_is_offered(tmp_path: Path, github, verify, reason: s
     assert not list(tmp_path.rglob("*.nro"))
 
 
+def test_only_github_release_downloads_are_fetched(tmp_path: Path) -> None:
+    class Elsewhere(FakeGitHub):
+        def __call__(self, url: str) -> bytes:
+            data = super().__call__(url)
+            if url.endswith("/releases/latest"):
+                release = json.loads(data)
+                release["assets"][0]["browser_download_url"] = "http://example.com/dreadovania.nro"
+                return json.dumps(release).encode()
+            return data
+
+    github = Elsewhere()
+    with pytest.raises(UpdateProblem, match="aren't GitHub release downloads"):
+        AppUpdates(tmp_path, fetch=github, verify=accept).latest()
+    assert not any("example.com" in c for c in github.calls)
+
+
 def test_no_attestation_means_no_update(tmp_path: Path) -> None:
     github = FakeGitHub()
     github.attestations = []

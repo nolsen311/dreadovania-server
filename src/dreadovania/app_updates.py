@@ -153,6 +153,9 @@ class AppUpdates:
         assets = {a.get("name"): a.get("browser_download_url") for a in release.get("assets", [])}
         if not assets.get(ASSET) or not assets.get(f"{ASSET}.sha256"):
             raise UpdateProblem(f"release {tag} has no {ASSET} and checksum")
+        downloads = f"https://github.com/{self.repo}/releases/download/"
+        if not all(str(assets[n]).startswith(downloads) for n in (ASSET, f"{ASSET}.sha256")):
+            raise UpdateProblem(f"release {tag}'s files aren't GitHub release downloads")
         expected = self.fetch(assets[f"{ASSET}.sha256"]).decode("ascii", "replace").split()[0]
         data = self.fetch(assets[ASSET])
         digest = hashlib.sha256(data).hexdigest()
