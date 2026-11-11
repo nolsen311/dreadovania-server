@@ -264,3 +264,23 @@ def test_stored_invites_are_only_hashes(client: TestClient) -> None:
         stored = conn.execute("SELECT * FROM invites").fetchone()
     assert token not in [str(v) for v in dict(stored).values()]
     assert stored["token_hash"] == auth._hash_token(token)
+
+
+# ---- sharing a seed by permalink (ADR 0020 §4) ------------------------------------------------
+
+
+def test_a_friend_generates_the_same_seed_from_a_shared_permalink(
+    client: TestClient, fake_runner: FakeRunner
+) -> None:
+    r = client.post("/api/v1/seeds", json={"preset_id": "starter_preset"}, headers=H)
+    seed_id = r.json()["seed_id"]
+    assert wait_for_job(client, r.json()["job_id"])["status"] == "succeeded"
+    page = client.get(f"/seeds/{seed_id}").text
+    assert 'value="FAKEPERMALINK"' in page and 'data-copy="permalink-' in page
+
+    as_member(client)
+    assert client.get(f"/seeds/{seed_id}").status_code == 404  # still private
+    r = client.post("/api/v1/seeds", json={"permalink": "FAKEPERMALINK"}, headers=H)
+    assert r.status_code == 202, r.text
+    assert wait_for_job(client, r.json()["job_id"])["status"] == "succeeded"
+    assert fake_runner.requests[-1].permalink == "FAKEPERMALINK"
