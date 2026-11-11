@@ -25,3 +25,4 @@ supersedes the old one; don't rewrite history.
 | [0017](0017-device-pairing.md) | Pairing the Switch app: codes, device tokens and what they may do | Accepted |
 | [0018](0018-switch-app-download.md) | The Switch app downloads a patched seed as a manifest and one tar | Accepted |
 | [0019](0019-preset-editor.md) | Editing every randomizer setting in the web UI | Proposed |
+| [0020](0020-accounts.md) | Accounts: friends on the same server, by invitation | Proposed |
