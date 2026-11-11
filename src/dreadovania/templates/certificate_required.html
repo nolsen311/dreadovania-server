@@ -1,0 +1,15 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{# Secure remote access refused the request (ADR 0023). #}
+{% extends "base.html" %}
+{% block title %}{{ refusal.title }} · Dreadovania{% endblock %}
+{% block content %}
+<h1>{{ refusal.title }}</h1>
+<section class="card stack">
+  <p>{{ refusal.detail[:1] | upper }}{{ refusal.detail[1:] }}.</p>
+  {% if refusal.status == 403 %}
+  <p class="muted">If you've just installed a certificate, close the browser completely and
+    open this page again: most browsers only offer a new certificate to a server they
+    haven't connected to yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

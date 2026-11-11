@@ -6,6 +6,9 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+      # With secure remote access checked by this server (ADR 0023): pairing and
+      # invites, without a certificate. Map it elsewhere and set FRONT_DOOR_URL.
+      # - "8081:8081"
     environment:
       # The address you will use in the browser; required for passkeys.
       # DREADOVANIA_PUBLIC_URL: https://dread.home.example.com
@@ -16,6 +19,8 @@ services:
       # DREADOVANIA_TLS_KEY_FILE: /certs/privkey.pem
       # Behind a reverse proxy: its address or network, so X-Forwarded-* is believed.
       # DREADOVANIA_TRUSTED_PROXIES: 172.18.0.0/16
+      # Secure remote access's front door, when the port is mapped to another one.
+      # DREADOVANIA_FRONT_DOOR_URL: https://dread.home.example.com:8443
       # Offer paired Switches the latest verified app release (ADR 0021). The server
       # then contacts GitHub at most every 6 hours while the app is in use.
       # DREADOVANIA_APP_UPDATES: "off"

@@ -9,6 +9,9 @@ rules apply: sessions, Origin checks on every change, rate limits, owner scoping
 from __future__ import annotations
 
 import json
+import secrets
+import threading
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
@@ -18,20 +21,27 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from dreadovania import accounts, auth, devices, passkeys, rdv_presets
+from dreadovania import accounts, auth, client_certs, devices, passkeys, rdv_presets, remote_access
 from dreadovania.jobs import CannotPatch, CannotSend, QueueFull
 from dreadovania.problems import ApiProblem
 from dreadovania.rdv_presets import PresetProblem
 from dreadovania.romfs import SUPPORTED_VERSIONS
 from dreadovania.routes_auth import (
     SAFE_METHODS,
+    change_remote_access,
     check_origin,
+    front_door_origin,
     invite_url,
+    main_origin,
+    on_front_door,
     perform_accept_invite,
     perform_login,
     perform_logout,
     perform_setup,
+    presented_certificate,
     public_origin,
+    remote_access_status,
+    uses_front_door,
 )
 from dreadovania.seeds import NoSpoiler, SeedBusy, SeedNotReady
 from dreadovania.switches import DEFAULT_PORT, SwitchError
@@ -92,7 +102,21 @@ def page_session(request: Request) -> auth.Session:
 
 
 def render(request: Request, name: str, status_code: int = 200, **context: Any) -> HTMLResponse:
+    if context.get("user") is not None and "certificate_expires_in" not in context:
+        context["certificate_expires_in"] = _expiring(request)
     return templates.TemplateResponse(request, name, context, status_code=status_code)
+
+
+def _expiring(request: Request) -> int | None:
+    """Days left on this browser's certificate, for the banner (ADR 0023 amendment)."""
+    if getattr(request.app.state, "remote_access", None) is None:
+        return None
+    cert = presented_certificate(request)
+    if cert is None:
+        return None
+    # A replacement in use: revoke the certificate it replaced (ADR 0023 amendment).
+    request.app.state.client_certs.confirm_renewal(cert["owner_id"], cert["id"])
+    return remote_access.expiring_soon(cert) if cert["kind"] == "browser" else None
 
 
 def install(app: Any) -> None:
@@ -102,6 +126,7 @@ def install(app: Any) -> None:
     async def _redirect(request: Request, exc: Redirect) -> Response:
         return go(request, exc.url)
 
+    app.state.certificate_downloads = OneTimeDownloads()
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     app.include_router(router)
 
@@ -469,6 +494,8 @@ def account_page(request: Request) -> Response:
         passkeys=passkeys.list_passkeys(db, user.user_id),
         passkeys_unavailable=_passkeys_unavailable(request),
         devices=devices.list_devices(db, user.user_id),
+        certificates=request.app.state.client_certs.list(user.user_id),
+        presented=presented_certificate(request),
         server_url=public_origin(request),
         accounts=[
             a | {"game_files_bytes": request.app.state.game_files.size(a["id"])}
@@ -478,6 +505,144 @@ def account_page(request: Request) -> Response:
         else [],
         invites=accounts.list_invites(db, user.user_id) if user.admin else [],
     )  # fmt: skip
+
+
+# ---- client certificates (ADR 0023) ----------------------------------------------------------
+
+DOWNLOAD_LIFETIME = 10 * 60  # seconds
+
+
+class OneTimeDownloads:
+    """A new certificate's .p12, kept in memory until it's downloaded once, for a few
+    minutes at most. The server never writes it to disk (ADR 0023 §2)."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._items: dict[str, tuple[float, str, bytes, str]] = {}
+
+    def add(self, owner_id: str, p12: bytes, name: str) -> str:
+        token = secrets.token_urlsafe(24)
+        now = time.monotonic()
+        with self._lock:
+            self._items = {k: v for k, v in self._items.items() if v[0] > now}
+            self._items[token] = (now + DOWNLOAD_LIFETIME, owner_id, p12, name)
+        return token
+
+    def take(self, owner_id: str, token: str) -> tuple[bytes, str] | None:
+        with self._lock:
+            item = self._items.get(token)
+            if item is None or item[1] != owner_id or item[0] <= time.monotonic():
+                return None
+            del self._items[token]
+        return item[2], item[3]
+
+
+def _filename(name: str) -> str:
+    safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in name).strip("-")[:40]
+    return f"dreadovania-{safe or 'certificate'}.p12"
+
+
+@router.post("/account/certificates")
+async def certificate_create(request: Request) -> Response:
+    user = page_session(request)
+    form = await read_form(request)
+    certs: client_certs.ClientCertificates = request.app.state.client_certs
+    try:
+        issued = certs.issue(user.user_id, "browser", form.get("name", ""))
+    except client_certs.CertificateError as exc:
+        return render(request, "_error.html", message=str(exc))
+    token = request.app.state.certificate_downloads.add(
+        user.user_id, issued.p12, issued.certificate["name"]
+    )
+    return render(
+        request, "_certificate_issued.html", certificate=issued.certificate,
+        password=issued.password, token=token, minutes=DOWNLOAD_LIFETIME // 60,
+    )  # fmt: skip
+
+
+@router.post("/account/certificates/replace")
+def certificate_replace(request: Request) -> Response:
+    """A replacement for the certificate this browser is using, from the expiry banner.
+    The old one keeps working until the browser connects with the new one."""
+    user = page_session(request)
+    cert = presented_certificate(request)
+    if cert is None or cert["owner_id"] != user.user_id or cert["kind"] != "browser":
+        return render(
+            request, "_error.html", message="this browser isn't using one of your certificates"
+        )
+    certs: client_certs.ClientCertificates = request.app.state.client_certs
+    try:
+        issued = certs.renew(user.user_id, cert["id"])
+    except client_certs.CertificateError as exc:
+        return render(request, "_error.html", message=str(exc))
+    token = request.app.state.certificate_downloads.add(
+        user.user_id, issued.p12, issued.certificate["name"]
+    )
+    return render(
+        request, "_certificate_issued.html", certificate=issued.certificate,
+        password=issued.password, token=token, minutes=DOWNLOAD_LIFETIME // 60, replacing=cert,
+    )  # fmt: skip
+
+
+@router.get("/account/certificates/download/{token}")
+def certificate_download(token: str, request: Request) -> Response:
+    user = page_session(request)
+    item = request.app.state.certificate_downloads.take(user.user_id, token)
+    if item is None:
+        return render(
+            request, "_error.html", status_code=404,
+            message="that download has been used or has expired: add a new certificate",
+        )  # fmt: skip
+    p12, name = item
+    return Response(
+        p12, media_type="application/x-pkcs12",
+        headers={"Content-Disposition": f'attachment; filename="{_filename(name)}"',
+                 "Cache-Control": "no-store"},
+    )  # fmt: skip
+
+
+@router.post("/account/certificates/{certificate_id}/revoke")
+def certificate_revoke(certificate_id: str, request: Request) -> Response:
+    user = page_session(request)
+    request.app.state.client_certs.revoke(user.user_id, certificate_id)
+    return go(request, "/account")
+
+
+@router.get("/account/remote-access")
+def remote_access_page(request: Request) -> Response:
+    user = admin_session(request)
+    return render(request, "remote_access.html", user=user, status=remote_access_status(request))
+
+
+@router.post("/account/remote-access")
+async def remote_access_submit(request: Request) -> Response:
+    user = admin_session(request)
+    form = await read_form(request)
+    action = form.get("action", "")
+    mode = form.get("mode") or None
+    check_forwarded = form.get("check_forwarded") == "on"
+    state = request.app.state.remote_access.state()
+    try:
+        if action == "choose" and state.enabled:
+            return render(request, "_error.html", message="turn it off before changing who checks")
+        if action == "choose":
+            change_remote_access(request, user, False, mode,
+                                 check_forwarded=check_forwarded, confirmed=False)  # fmt: skip
+        elif action == "on":
+            change_remote_access(
+                request, user, True, state.mode, check_forwarded=state.check_forwarded,
+                confirmed=form.get("confirmed") == "on",
+            )  # fmt: skip
+        elif action == "off":
+            change_remote_access(
+                request, user, False, state.mode, check_forwarded=state.check_forwarded,
+                confirmed=False,
+            )  # fmt: skip
+        else:
+            return render(request, "_error.html", message="unknown action")
+    except ApiProblem as problem:
+        return render(request, "_error.html", message=problem.detail or problem.title)
+    return go(request, "/account/remote-access")
 
 
 # ---- accounts and invites (ADR 0020) --------------------------------------------------------
@@ -500,7 +665,8 @@ def invite_page(request: Request) -> Response:
 @router.post("/invite")
 async def invite_submit(request: Request) -> Response:
     form = await read_form(request)
-    response = go(request, "/")
+    # From the front door (ADR 0023), the rest of the server is at its main address.
+    response = go(request, f"{main_origin(request) or ''}/" if on_front_door(request) else "/")
     try:
         perform_accept_invite(
             request, response, form.get("token", "")[:128], form.get("username", "")[:64],
@@ -561,9 +727,10 @@ async def member_remove(account_id: str, request: Request) -> Response:
 def device_code(request: Request) -> Response:
     user = page_session(request)
     code, _expires = devices.new_pairing_code(request.app.state.db, user.user_id)
+    door = uses_front_door(request)
     return render(
         request, "_pairing_code.html", code=code, minutes=int(devices.CODE_LIFETIME.seconds // 60),
-        server_url=public_origin(request),
+        server_url=front_door_origin(request) if door else public_origin(request),
     )  # fmt: skip
 
 

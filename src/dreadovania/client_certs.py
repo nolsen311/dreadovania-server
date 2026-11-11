@@ -84,8 +84,16 @@ def _write_public(path: Path, data: bytes) -> None:
 class ClientCertificates:
     """The built-in CA and the record of every certificate it issued."""
 
-    def __init__(self, db: Database, data_dir: Path) -> None:
+    def __init__(
+        self,
+        db: Database,
+        data_dir: Path,
+        *,
+        device_days: int = DEVICE_DAYS,
+        browser_days: int = BROWSER_DAYS,
+    ) -> None:
         self.db = db
+        self.device_days, self.browser_days = device_days, browser_days
         self.dir = data_dir / "remote-access"
         self.ca_cert_path = self.dir / "ca.pem"
         self.ca_key_path = self.dir / "ca.key"
@@ -169,7 +177,7 @@ class ClientCertificates:
         name = " ".join(name.split())[:MAX_NAME] or ("Switch" if kind == "device" else "Browser")
         if kind == "device" and not device_id:
             raise CertificateError("a Switch's certificate belongs to its paired device")
-        days = days or (DEVICE_DAYS if kind == "device" else BROWSER_DAYS)
+        days = days or (self.device_days if kind == "device" else self.browser_days)
         ca_cert, ca_key = self._ca()
         key = rsa.generate_private_key(public_exponent=65537, key_size=KEY_BITS)
         cert_id = new_id()

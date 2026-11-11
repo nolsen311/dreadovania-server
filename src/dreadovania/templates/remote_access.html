@@ -1,0 +1,96 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{# Secure remote access settings, admin only (ADR 0023). #}
+{% extends "base.html" %}
+{% block title %}Secure remote access · Dreadovania{% endblock %}
+{% block content %}
+<h1>Secure remote access</h1>
+<section class="card stack">
+  {% if status.enabled %}
+    <p><span class="badge ready">on</span> Every connection needs a certificate from this
+      server, except pairing and invites.</p>
+  {% else %}
+    <p><span class="badge">off</span> Anyone who can reach this server gets its sign-in page.</p>
+  {% endif %}
+  <p class="muted">With it on, only browsers, phones and Switches with a certificate from this
+    server get through, so the server can be put on the Internet. Each account adds
+    certificates for its own browsers on the <a href="/account#certificates">Account page</a>.</p>
+  {% if status.presented %}
+    <p class="ok">This browser connected with your certificate “{{ status.presented.name }}”.</p>
+  {% elif status.mode %}
+    <p>This browser didn't connect with a certificate from this server{% if status.mode != "server" and not status.check_forwarded %}, or the server can't tell, because only the proxy checks{% endif %}.</p>
+  {% endif %}
+</section>
+
+<section class="card stack">
+  <h2>1. Who checks certificates</h2>
+  <form method="post" action="/account/remote-access" hx-post="/account/remote-access" hx-target="#messages" class="stack">
+    <input type="hidden" name="action" value="choose">
+    <label class="choice"><input type="radio" name="mode" value="server" {% if status.mode == "server" %}checked{% endif %} {% if not status.serves_tls or status.enabled %}disabled{% endif %}>
+      <span><strong>This server</strong><br><small>It serves HTTPS itself{% if not status.serves_tls %} (not set up: see docs/https.md){% endif %}. Pairing and invites move to the front-door port{% if status.front_door_url %}, <code>{{ status.front_door_url }}</code>{% endif %}.</small></span></label>
+    <label class="choice"><input type="radio" name="mode" value="proxy" {% if status.mode == "proxy" %}checked{% endif %} {% if status.enabled %}disabled{% endif %}>
+      <span><strong>A reverse proxy</strong><br><small>HAProxy, Caddy or nginx ends TLS and checks against the CA and revocation list below.</small></span></label>
+    <label class="choice"><input type="radio" name="mode" value="cloudflare" {% if status.mode == "cloudflare" %}checked{% endif %} {% if status.enabled %}disabled{% endif %}>
+      <span><strong>Cloudflare</strong><br><small>The hostname is proxied by Cloudflare, which checks with a WAF rule. Cloudflare only accepts certificates from its own CA, which this version can't issue yet, so this can't be turned on yet.</small></span></label>
+    <label class="choice"><input type="checkbox" name="check_forwarded" {% if status.check_forwarded %}checked{% endif %} {% if status.enabled %}disabled{% endif %}>
+      <span>Behind a proxy or Cloudflare, also check the certificate it passes on<br>
+        <small>In <code>X-SSL-Client-SHA256</code> (hex) or <code>Client-Cert</code> (RFC 9440), only from <code>DREADOVANIA_TRUSTED_PROXIES</code>{% if not status.trusted_proxies %}, which isn't set{% endif %}.{% if status.mode and status.mode != "server" %} This request {% if status.forwarded_header %}carried one{% elif status.via_trusted_proxy %}came from a trusted proxy without one{% else %}didn't come from a trusted proxy{% endif %}.{% endif %}</small></span></label>
+    {% if not status.enabled %}<button type="submit">Save</button>{% endif %}
+  </form>
+</section>
+
+{% if status.mode in ("proxy", "cloudflare") %}
+<section class="card stack">
+  <h2>2. Set up the {{ "proxy" if status.mode == "proxy" else "WAF rule" }}</h2>
+  {% if status.mode == "proxy" %}
+    <p>Give the proxy the CA and the revocation list, and have it ask for a certificate
+      everywhere except the paths below. The files are also in the data folder, in
+      <code>remote-access/</code>: mounting that folder keeps the revocation list up to date,
+      as it changes whenever a certificate is revoked.</p>
+    <p><a class="button" href="/api/v1/remote-access/ca.pem" download>Download ca.pem</a>
+       <a class="button" href="/api/v1/remote-access/crl.pem" download>Download crl.pem</a></p>
+    <p class="muted"><small>HAProxy: <code>bind … ssl crt … ca-file ca.pem crl-file crl.pem verify optional</code>,
+      deny requests outside the paths below unless <code>ssl_c_used</code> and
+      <code>ssl_c_verify 0</code>, and pass <code>%[ssl_c_der,sha2(256),hex]</code> as
+      <code>X-SSL-Client-SHA256</code>.</small></p>
+  {% else %}
+    <p>In Cloudflare, under <strong>SSL/TLS → Client Certificates</strong>, turn on mTLS for
+      this hostname. Then add a WAF custom rule with this expression and the action
+      <strong>Block</strong>:</p>
+    <pre>{{ status.cloudflare_expression }}</pre>
+  {% endif %}
+  <p>Left open without a certificate:</p>
+  <ul>{% for p in status.front_door %}<li><code>{{ p }}</code></li>{% endfor %}</ul>
+</section>
+{% endif %}
+
+{% if status.mode %}
+<section class="card stack">
+  <h2>{{ "3" if status.mode != "server" else "2" }}. Turn it {{ "off" if status.enabled else "on" }}</h2>
+  {% if status.enabled %}
+    <form method="post" action="/account/remote-access" hx-post="/account/remote-access" hx-target="#messages" hx-confirm="Turn secure remote access off? Anyone who can reach the server gets its sign-in page again.">
+      <input type="hidden" name="action" value="off">
+      <button type="submit" class="danger">Turn off</button>
+    </form>
+  {% else %}
+    <ol>
+      <li>On the <a href="/account#certificates">Account page</a>, add a certificate for this
+        browser, and install it.</li>
+      <li>Close the browser completely and open this page again.</li>
+      <li>{% if status.mode == "server" or status.check_forwarded %}When this page says this
+        browser connected with your certificate, turn it on.{% else %}Check that this browser
+        gets through the proxy with its certificate, and that another without one doesn't.{% endif %}</li>
+    </ol>
+    <form method="post" action="/account/remote-access" hx-post="/account/remote-access" hx-target="#messages" class="stack">
+      <input type="hidden" name="action" value="on">
+      {% if status.mode != "server" and not status.check_forwarded %}
+        <label class="choice"><input type="checkbox" name="confirmed" required>
+          <span>I've checked that this browser connects with its certificate</span></label>
+      {% endif %}
+      <button type="submit" class="primary">Turn on</button>
+    </form>
+  {% endif %}
+  <p class="muted"><small>Locked out? On the server, run
+    <code>docker compose exec dreadovania python -m dreadovania remote-access off</code>.</small></p>
+</section>
+{% endif %}
+{% endblock %}

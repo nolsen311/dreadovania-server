@@ -36,6 +36,18 @@ class Settings(BaseSettings):
     # for use behind a TLS reverse proxy or on a LAN without passkeys.
     tls_cert_file: Path | None = None  # fullchain.pem
     tls_key_file: Path | None = None  # privkey.pem
+    # Secure remote access (ADR 0023): when the server checks client certificates
+    # itself, pairing and invites are served on this port, without a certificate.
+    # Only listens when the server serves HTTPS. 0 turns it off.
+    front_door_port: int = Field(default=8081, ge=0, le=65535)
+    # The front door's address as devices reach it, when the port is mapped to
+    # another one (e.g. https://dread.example.com:8443). Defaults to the public
+    # URL with front_door_port.
+    front_door_url: AnyHttpUrl | None = None
+    # How long new client certificates last (ADR 0023 amendment). The app renews a
+    # Switch's by itself; a browser's owner gets a banner 30 days before it expires.
+    device_certificate_days: int = Field(default=47, ge=1, le=398)
+    browser_certificate_days: int = Field(default=365, ge=31, le=825)
 
     # Reverse proxies whose X-Forwarded-For/-Proto headers are believed, as
     # comma-separated addresses or networks (e.g. "172.18.0.0/16"). Empty trusts
