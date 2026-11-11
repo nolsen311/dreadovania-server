@@ -10,8 +10,15 @@
   {% elif seed.status == "ready" %}
     <dl class="details">
       <dt>Hash</dt><dd class="mono">{{ seed.seed_hash }}</dd>
-      <dt>Permalink</dt><dd class="mono wrap">{{ seed.permalink }}</dd>
     </dl>
+    <div class="stack" id="share">
+      <label>Permalink
+        <input type="text" id="permalink-{{ seed.id }}" class="mono" readonly value="{{ seed.permalink }}" data-select-on-focus autocomplete="off" spellcheck="false">
+      </label>
+      <button type="button" data-copy="permalink-{{ seed.id }}">Copy permalink</button>
+      <p class="muted"><small>To play the same seed as a friend, send them this permalink. They generate
+        from it on their own account (Generate → Permalink) and patch it with their own game files.</small></p>
+    </div>
     <a class="button" href="/api/v1/seeds/{{ seed.id }}/rdvgame" download>Download .rdvgame</a>
     {% if seed.race %}
       <p class="muted">Race seed: generated without a spoiler.</p>

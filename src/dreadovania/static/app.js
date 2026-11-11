@@ -30,6 +30,26 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  // Copy a permalink (or anything) to the clipboard. The clipboard needs HTTPS;
+  // without it, the text is left selected so it can be copied by hand.
+  document.body.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-copy]");
+    if (!button) return;
+    const field = document.getElementById(button.dataset.copy);
+    if (!field) return;
+    const label = button.dataset.label || button.textContent;
+    button.dataset.label = label;
+    field.focus();
+    field.select();
+    try {
+      await navigator.clipboard.writeText(field.value);
+      button.textContent = "Copied";
+    } catch {
+      button.textContent = "Selected: copy it";
+    }
+    setTimeout(() => { button.textContent = label; }, 2000);
+  });
+
   // A shown-once link: select it all when tapped, ready to copy.
   document.body.addEventListener("focusin", (event) => {
     if (event.target.matches("[data-select-on-focus]")) event.target.select();
