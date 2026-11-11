@@ -37,9 +37,11 @@ def db(tmp_path: Path) -> Database:
     return database
 
 
-def make_user(db: Database, user_id: str) -> str:
+def make_user(db: Database, user_id: str, role: str = "admin") -> str:
     with db.connect() as conn:
-        conn.execute("INSERT INTO users (id, created_at) VALUES (?, ?)", (user_id, utc_now()))
+        conn.execute(
+            "INSERT INTO users (id, created_at, role) VALUES (?, ?, ?)", (user_id, utc_now(), role)
+        )
     return user_id
 
 

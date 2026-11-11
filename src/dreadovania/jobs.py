@@ -147,6 +147,15 @@ class JobQueue:
 
     def submit_export(self, owner_id: str, seed_id: str) -> Submitted:
         """Queue patching a ready seed into the user's game files (ADR 0013 §2)."""
+        with self.db.connect() as conn:
+            role = conn.execute("SELECT role FROM users WHERE id = ?", (owner_id,)).fetchone()
+        if role is None or role["role"] != "admin":
+            # Until each account has its own game files (ADR 0020 §3), the server's
+            # are the admin's own dump, and patching with them is for the admin only.
+            raise CannotPatch(
+                "patching needs your own game files, which this server can't hold for "
+                "invited accounts yet"
+            )
         if self.romfs is None:
             raise CannotPatch("patching isn't available on this server")
         game_files = self.romfs.status()

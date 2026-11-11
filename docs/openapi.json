@@ -1,6 +1,66 @@
 {
   "components": {
     "schemas": {
+      "AcceptInvite": {
+        "properties": {
+          "password": {
+            "maxLength": 1024,
+            "title": "Password",
+            "type": "string"
+          },
+          "token": {
+            "maxLength": 128,
+            "title": "Token",
+            "type": "string"
+          },
+          "username": {
+            "maxLength": 64,
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "username",
+          "password"
+        ],
+        "title": "AcceptInvite",
+        "type": "object"
+      },
+      "AccountOut": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "role": {
+            "description": "`admin` or `member`.",
+            "title": "Role",
+            "type": "string"
+          },
+          "seeds": {
+            "title": "Seeds",
+            "type": "integer"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "role",
+          "created_at",
+          "seeds"
+        ],
+        "title": "AccountOut",
+        "type": "object"
+      },
       "AppLatest": {
         "properties": {
           "available": {
@@ -201,6 +261,94 @@
           "status"
         ],
         "title": "Health",
+        "type": "object"
+      },
+      "InviteCreated": {
+        "description": "Send ``url`` to the person you're inviting. It works once, and is shown only now.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The invite link, when the server's address is known.",
+            "title": "Url"
+          }
+        },
+        "required": [
+          "id",
+          "note",
+          "created_at",
+          "expires_at",
+          "token",
+          "url"
+        ],
+        "title": "InviteCreated",
+        "type": "object"
+      },
+      "InviteOut": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "note",
+          "created_at",
+          "expires_at"
+        ],
+        "title": "InviteOut",
+        "type": "object"
+      },
+      "InviteRequest": {
+        "properties": {
+          "note": {
+            "default": "",
+            "description": "Who it's for, so you can tell invites apart. Shown only to the admin.",
+            "maxLength": 60,
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "title": "InviteRequest",
         "type": "object"
       },
       "JobOut": {
@@ -1066,6 +1214,25 @@
         "title": "ServerInfo",
         "type": "object"
       },
+      "SessionOut": {
+        "properties": {
+          "admin": {
+            "description": "Whether this is the server's admin account (ADR 0020).",
+            "title": "Admin",
+            "type": "boolean"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "admin"
+        ],
+        "title": "SessionOut",
+        "type": "object"
+      },
       "SetupRequest": {
         "properties": {
           "password": {
@@ -1617,6 +1784,68 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/accounts": {
+      "get": {
+        "description": "Every account on this server, the admin first. Admin only.",
+        "operationId": "list_accounts_api_v1_accounts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AccountOut"
+                  },
+                  "title": "Response List Accounts Api V1 Accounts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Accounts",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/api/v1/accounts/{account_id}": {
+      "delete": {
+        "description": "Remove a member and delete everything they own: seeds, presets, Switches,\npasskeys and paired devices. Refused while one of their jobs runs. Admin only.",
+        "operationId": "remove_account_api_v1_accounts__account_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Account",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
     "/api/v1/app/dreadovania.nro": {
       "get": {
         "description": "The verified `.nro` from `/app/latest`.",
@@ -1785,7 +2014,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SignedIn"
+                  "$ref": "#/components/schemas/SessionOut"
                 }
               }
             },
@@ -1978,6 +2207,151 @@
         "summary": "Info",
         "tags": [
           "meta"
+        ]
+      }
+    },
+    "/api/v1/invites": {
+      "get": {
+        "description": "Invites that haven't been used, revoked or expired. Admin only.",
+        "operationId": "list_invites_api_v1_invites_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InviteOut"
+                  },
+                  "title": "Response List Invites Api V1 Invites Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Invites",
+        "tags": [
+          "accounts"
+        ]
+      },
+      "post": {
+        "description": "A one-time invite link, valid for 7 days. Admin only.",
+        "operationId": "create_invite_api_v1_invites_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Invite",
+        "tags": [
+          "accounts"
+        ]
+      }
+    },
+    "/api/v1/invites/accept": {
+      "post": {
+        "description": "Create an account with an invite link's token, and sign in to it.",
+        "operationId": "accept_invite_api_v1_invites_accept_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInvite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignedIn"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Accept Invite",
+        "tags": [
+          "sign-in",
+          "accounts"
+        ]
+      }
+    },
+    "/api/v1/invites/{invite_id}": {
+      "delete": {
+        "description": "Revoke an unused invite: its link stops working. Admin only.",
+        "operationId": "revoke_invite_api_v1_invites__invite_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invite_id",
+            "required": true,
+            "schema": {
+              "title": "Invite Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Invite",
+        "tags": [
+          "accounts"
         ]
       }
     },
@@ -2468,7 +2842,7 @@
     },
     "/api/v1/romfs": {
       "get": {
-        "description": "Whether the server has usable game files (an extracted RomFS), and which version.",
+        "description": "Whether the server has usable game files (an extracted RomFS), and which version.\n\nFor an invited account this is always `missing`: the server's game files are\nthe admin's own, and each account will upload its own (ADR 0020 \u00a73).",
         "operationId": "get_romfs_api_v1_romfs_get",
         "responses": {
           "200": {

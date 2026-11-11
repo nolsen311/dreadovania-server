@@ -39,7 +39,7 @@ def protected_routes(client: TestClient) -> list[tuple[str, str]]:
     """Every API route except the deliberately public ones."""
     public = {("GET", "/api/v1/setup"), ("POST", "/api/v1/setup"), ("POST", "/api/v1/auth/login"),
               ("POST", "/api/v1/auth/passkey/options"), ("POST", "/api/v1/auth/passkey"),
-              ("POST", "/api/v1/devices/pair"),
+              ("POST", "/api/v1/devices/pair"), ("POST", "/api/v1/invites/accept"),
               ("GET", "/api/v1/info")}  # fmt: skip
     routes = []
     for path, ops in client.app.openapi()["paths"].items():
@@ -71,6 +71,8 @@ def test_before_setup_everything_but_setup_is_unavailable(client) -> None:
     assert client.post("/api/v1/auth/passkey", json=body).status_code == 503
     pairing = client.post("/api/v1/devices/pair", json={"code": "ABCD-EFGH"})
     assert pairing.status_code == 503
+    invite = {"token": "x", "username": "a", "password": "b" * 12}
+    assert client.post("/api/v1/invites/accept", json=invite).status_code == 503
     for method, path in protected_routes(client):
         response = client.request(method, path, headers=SAME_SITE)
         assert response.status_code == 503, (method, path)
@@ -87,7 +89,7 @@ def test_setup_signs_in_with_a_hardened_cookie(client) -> None:
     cookie = response.headers["set-cookie"].lower()
     for flag in ("httponly", "samesite=lax", "secure", "path=/", "max-age=7776000"):
         assert flag in cookie, cookie
-    assert client.get("/api/v1/auth/session").json() == {"username": "samus"}
+    assert client.get("/api/v1/auth/session").json() == {"username": "samus", "admin": True}
     assert client.get("/api/v1/setup").json() == {"setup_required": False}
 
 
@@ -158,7 +160,7 @@ def test_login_and_logout(account) -> None:
         "/api/v1/auth/login", json={"username": "Samus", "password": PASSWORD}, headers=SAME_SITE
     )
     assert response.status_code == 200
-    assert account.get("/api/v1/auth/session").json() == {"username": "samus"}
+    assert account.get("/api/v1/auth/session").json() == {"username": "samus", "admin": True}
 
     stolen = account.cookies.get("dreadovania_session")
     assert account.post("/api/v1/auth/logout", headers=SAME_SITE).status_code == 204

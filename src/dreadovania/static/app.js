@@ -18,6 +18,23 @@ document.addEventListener("DOMContentLoaded", () => {
     if (url && !url.value) url.value = location.origin;
   }
 
+  // Invite: the same, for a one-time invite link (ADR 0020).
+  const invite = document.getElementById("invite-token");
+  if (invite) {
+    const match = location.hash.match(/token=([A-Za-z0-9_-]+)/);
+    if (match) {
+      invite.value = match[1];
+      history.replaceState(null, "", location.pathname);
+    } else {
+      document.getElementById("token-missing").hidden = false;
+    }
+  }
+
+  // A shown-once link: select it all when tapped, ready to copy.
+  document.body.addEventListener("focusin", (event) => {
+    if (event.target.matches("[data-select-on-focus]")) event.target.select();
+  });
+
   // Generate: show the preset fields or the permalink field.
   const generate = document.getElementById("generate");
   if (generate) {

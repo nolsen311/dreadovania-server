@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from dreadovania import auth, devices, passkeys, rdv_presets
+from dreadovania import accounts, auth, devices, passkeys, rdv_presets
 from dreadovania.jobs import CannotPatch, CannotSend, QueueFull
 from dreadovania.problems import ApiProblem
 from dreadovania.rdv_presets import PresetProblem
@@ -26,6 +26,8 @@ from dreadovania.romfs import SUPPORTED_VERSIONS
 from dreadovania.routes_auth import (
     SAFE_METHODS,
     check_origin,
+    invite_url,
+    perform_accept_invite,
     perform_login,
     perform_logout,
     perform_setup,
@@ -237,7 +239,9 @@ def _status_context(request: Request, user: auth.Session, seed: dict) -> dict[st
         )
         # Inspecting the game files walks the folder: only when patching could start.
         if seed["mod_status"] not in ("pending", "ready"):
-            context["romfs"] = request.app.state.romfs.status()
+            context["romfs"] = (
+                request.app.state.romfs.status() if user.admin else accounts.MEMBER_ROMFS
+            )
         if seed["mod_status"] == "ready":
             context.update(_push_context(request, user, seed))
     return context
@@ -401,6 +405,11 @@ async def purge(request: Request) -> Response:
 @router.get("/game-files")
 async def game_files_page(request: Request) -> Response:
     user = page_session(request)
+    if not user.admin:  # the server's game files are the admin's own (ADR 0020 §3)
+        return render(
+            request, "game_files.html", user=user, romfs=accounts.MEMBER_ROMFS,
+            supported=SUPPORTED_VERSIONS, upload=None, upload_blocked=accounts.MEMBER_ROMFS.message,
+        )  # fmt: skip
     status = await run_in_threadpool(request.app.state.romfs.status)
     uploads = request.app.state.romfs_uploads
     return render(
@@ -460,13 +469,90 @@ def switch_delete(switch_id: str, request: Request) -> Response:
 @router.get("/account")
 def account_page(request: Request) -> Response:
     user = page_session(request)
+    db = request.app.state.db
     return render(
         request, "account.html", user=user,
-        passkeys=passkeys.list_passkeys(request.app.state.db, user.user_id),
+        passkeys=passkeys.list_passkeys(db, user.user_id),
         passkeys_unavailable=_passkeys_unavailable(request),
-        devices=devices.list_devices(request.app.state.db, user.user_id),
+        devices=devices.list_devices(db, user.user_id),
         server_url=public_origin(request),
+        accounts=accounts.list_accounts(db, user.user_id) if user.admin else [],
+        invites=accounts.list_invites(db, user.user_id) if user.admin else [],
     )  # fmt: skip
+
+
+# ---- accounts and invites (ADR 0020) --------------------------------------------------------
+
+
+def admin_session(request: Request) -> auth.Session:
+    user = page_session(request)
+    if not user.admin:
+        raise ApiProblem(403, "Admin only", "only the server's admin can manage accounts")
+    return user
+
+
+@router.get("/invite")
+def invite_page(request: Request) -> Response:
+    if auth.setup_required(request.app.state.db):
+        return go(request, "/setup")
+    return render(request, "invite.html")
+
+
+@router.post("/invite")
+async def invite_submit(request: Request) -> Response:
+    form = await read_form(request)
+    response = go(request, "/")
+    try:
+        perform_accept_invite(
+            request, response, form.get("token", "")[:128], form.get("username", "")[:64],
+            form.get("password", "")[: auth.MAX_PASSWORD_LENGTH],
+        )  # fmt: skip
+    except ApiProblem as problem:
+        return render(request, "_error.html", message=problem.detail or problem.title)
+    return response
+
+
+@router.post("/account/invites")
+async def invite_create(request: Request) -> Response:
+    user = admin_session(request)
+    form = await read_form(request)
+    try:
+        token, invite = accounts.create_invite(
+            request.app.state.db, user.user_id, form.get("note", "")
+        )
+    except accounts.AccountError as exc:
+        return render(request, "_error.html", message=str(exc))
+    return render(
+        request, "_invite_link.html", invite=invite, token=token, url=invite_url(request, token)
+    )
+
+
+@router.post("/account/invites/{invite_id}/revoke")
+def invite_revoke(invite_id: str, request: Request) -> Response:
+    user = admin_session(request)
+    accounts.revoke_invite(request.app.state.db, user.user_id, invite_id)
+    return go(request, "/account")
+
+
+@router.post("/account/members/{account_id}/remove")
+async def member_remove(account_id: str, request: Request) -> Response:
+    user = admin_session(request)
+    form = await read_form(request)
+    db = request.app.state.db
+    target = next(
+        (a for a in accounts.list_accounts(db, user.user_id) if a["id"] == account_id), None
+    )
+    if target is None:
+        return render(request, "_error.html", status_code=404, message="account not found")
+    if form.get("confirm", "").strip() != target["username"]:
+        return render(
+            request, "_error.html", message=f"type {target['username']} exactly to confirm"
+        )
+    try:
+        accounts.remove_account(db, request.app.state.settings.data_dir, user.user_id, account_id)
+    except accounts.AccountError as exc:
+        return render(request, "_error.html", message=str(exc))
+    return go(request, "/account")
 
 
 @router.post("/account/devices/code")

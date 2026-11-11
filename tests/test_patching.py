@@ -377,8 +377,9 @@ def test_migration_keeps_existing_jobs_and_allows_exports(tmp_path: Path, monkey
     db = Database(tmp_path / "d.db")
     monkeypatch.setattr(db, "_migrations", [m for m in db._migrations if m[0] <= 3])
     db.migrate()
-    owner = make_user(db, "alice")
-    with db.connect() as conn:
+    owner = "alice"
+    with db.connect() as conn:  # the schema of version 3: no roles yet
+        conn.execute("INSERT INTO users (id, created_at) VALUES (?, 'now')", (owner,))
         conn.execute(
             "INSERT INTO seeds (id, owner_id, status, source, preset_key, randovania_version,"
             " created_at) VALUES ('s1', ?, 'ready', 'preset', 'starter_preset', '12.0.0', 'now')",
