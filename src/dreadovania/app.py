@@ -10,10 +10,10 @@ from importlib.metadata import version
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
-from dreadovania import __version__, auth, problems, routes_api, routes_auth, ui
+from dreadovania import __version__, auth, problems, remote_access, routes_api, routes_auth, ui
 from dreadovania.app_updates import AppUpdates
 from dreadovania.client_certs import ClientCertificates
 from dreadovania.config import Settings
@@ -81,7 +81,19 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.presets = PresetStore(db)
     app.state.seeds = SeedStore(db, settings.data_dir)
     app.state.switches = SwitchStore(db)
-    app.state.client_certs = ClientCertificates(db, settings.data_dir)
+    app.state.client_certs = ClientCertificates(
+        db, settings.data_dir, device_days=settings.device_certificate_days,
+        browser_days=settings.browser_certificate_days,
+    )  # fmt: skip
+    app.state.remote_access = remote_access.RemoteAccess(
+        db, app.state.client_certs,
+        serves_tls=settings.tls_cert_file is not None,
+        trusted_proxies=settings.trusted_proxy_list,
+    )  # fmt: skip
+    reloader = getattr(app.state, "tls_reloader", None)
+    if reloader is not None:  # apply the setting now, and each change at once
+        reloader.check(force=True)
+        app.state.remote_access.on_change(lambda _state: reloader.check(force=True))
     if app.state.app_updates is None:
         app.state.app_updates = AppUpdates(settings.data_dir, enabled=settings.app_updates)
     uploads = RomfsUploads(
@@ -208,6 +220,30 @@ def create_app(
             if target is not None:
                 return RedirectResponse(target, status_code=308)
         return await call_next(request)
+
+    @app.middleware("http")
+    async def certificates_required(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """Secure remote access (ADR 0023): a certificate, or only the front door."""
+        remote = getattr(request.app.state, "remote_access", None)
+        if remote is None:
+            return await call_next(request)  # not started
+        refusal = remote.check(
+            request.method, request.url.path, request.scope.get(remote_access.PEER_KEY),
+            request.headers,
+        )  # fmt: skip
+        if refusal is None:
+            return await call_next(request)
+        if request.url.path.startswith(f"{API_PREFIX}/") or request.url.path == "/healthz":
+            return JSONResponse(
+                {"type": "about:blank", "title": refusal.title, "status": refusal.status,
+                 "detail": refusal.detail},
+                status_code=refusal.status, media_type=problems.PROBLEM_JSON,
+            )  # fmt: skip
+        return ui.render(
+            request, "certificate_required.html", status_code=refusal.status, refusal=refusal
+        )
 
     @app.middleware("http")
     async def security_headers(

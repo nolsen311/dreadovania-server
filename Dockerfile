@@ -67,7 +67,8 @@ ENV PATH=/app/.venv/bin:$PATH \
 
 USER 10001:10001
 WORKDIR /data
-EXPOSE 8080
+# 8081: the front door for pairing and invites, with secure remote access (ADR 0023).
+EXPOSE 8080 8081
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD ["python", "-m", "dreadovania.healthcheck"]

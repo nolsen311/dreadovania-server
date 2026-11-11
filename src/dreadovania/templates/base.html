@@ -29,6 +29,14 @@
   </header>
   <main>
     <div id="messages" role="status" aria-live="polite"></div>
+    {% if certificate_expires_in is not none %}
+    <div class="card warnings stack" id="certificate-expiry">
+      <p>This browser's certificate expires {% if certificate_expires_in == 0 %}today{% else %}in {{ certificate_expires_in }} day{{ "" if certificate_expires_in == 1 else "s" }}{% endif %}.</p>
+      <form method="post" action="/account/certificates/replace" hx-post="/account/certificates/replace" hx-target="#certificate-expiry" hx-swap="innerHTML">
+        <button type="submit" class="primary">Get its replacement</button>
+      </form>
+    </div>
+    {% endif %}
     {% block content %}{% endblock %}
   </main>
 </body>

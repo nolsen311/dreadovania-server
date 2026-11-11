@@ -116,3 +116,8 @@ textarea { font-weight: 400; }
 #about-form { margin-top: .5rem; }
 details.card-in { border: 1px solid var(--line); border-radius: var(--radius); padding: 0 .75rem; }
 details.card-in > .stack { padding: 0 0 .75rem; }
+.install { margin: .5rem 0; }
+.install dt { font-weight: 600; margin-top: .6rem; }
+.install dd { margin: .15rem 0 0; }
+.choice { display: flex; gap: .6rem; align-items: flex-start; }
+.choice input { flex: none; margin-top: .15rem; }

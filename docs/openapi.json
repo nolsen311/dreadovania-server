@@ -902,6 +902,39 @@
         "title": "PasskeySignIn",
         "type": "object"
       },
+      "PresentedCertificate": {
+        "properties": {
+          "certificate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CertificateOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The valid certificate this request came with, if any."
+          },
+          "expires_in_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Days left, when it's a browser certificate expiring within 30 days.",
+            "title": "Expires In Days"
+          }
+        },
+        "required": [
+          "certificate",
+          "expires_in_days"
+        ],
+        "title": "PresentedCertificate",
+        "type": "object"
+      },
       "PresetOut": {
         "properties": {
           "builtin": {
@@ -1008,6 +1041,151 @@
           "switch_id"
         ],
         "title": "PushIn",
+        "type": "object"
+      },
+      "RemoteAccessChange": {
+        "properties": {
+          "check_forwarded": {
+            "default": true,
+            "title": "Check Forwarded",
+            "type": "boolean"
+          },
+          "confirmed": {
+            "default": false,
+            "description": "When the proxy checks alone: the admin has checked that this browser connects with its certificate.",
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`server`, `proxy` or `cloudflare`.",
+            "title": "Mode"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "RemoteAccessChange",
+        "type": "object"
+      },
+      "RemoteAccessOut": {
+        "properties": {
+          "changed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changed At"
+          },
+          "check_forwarded": {
+            "description": "Behind a proxy or Cloudflare: also check the certificate it passes on.",
+            "title": "Check Forwarded",
+            "type": "boolean"
+          },
+          "cloudflare_expression": {
+            "description": "The WAF custom rule to block with.",
+            "title": "Cloudflare Expression",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Whether every connection needs a client certificate.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "forwarded_header": {
+            "description": "Whether this request carried a certificate header from a trusted proxy.",
+            "title": "Forwarded Header",
+            "type": "boolean"
+          },
+          "front_door": {
+            "description": "What stays open without a certificate.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Front Door",
+            "type": "array"
+          },
+          "front_door_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where pairing and invites go when the server checks certificates itself.",
+            "title": "Front Door Url"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who checks: `server` (this server's own HTTPS), `proxy` (a reverse proxy that ends TLS) or `cloudflare`; null until chosen.",
+            "title": "Mode"
+          },
+          "presented": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CertificateOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The valid certificate this request came with, if any."
+          },
+          "serves_tls": {
+            "description": "Whether this server serves HTTPS itself.",
+            "title": "Serves Tls",
+            "type": "boolean"
+          },
+          "trusted_proxies": {
+            "description": "Whether DREADOVANIA_TRUSTED_PROXIES is set.",
+            "title": "Trusted Proxies",
+            "type": "boolean"
+          },
+          "via_trusted_proxy": {
+            "description": "Whether this request came from one of them.",
+            "title": "Via Trusted Proxy",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "mode",
+          "check_forwarded",
+          "changed_at",
+          "serves_tls",
+          "trusted_proxies",
+          "via_trusted_proxy",
+          "forwarded_header",
+          "presented",
+          "front_door",
+          "front_door_url",
+          "cloudflare_expression"
+        ],
+        "title": "RemoteAccessOut",
         "type": "object"
       },
       "RomfsOut": {
@@ -2234,6 +2412,28 @@
         ]
       }
     },
+    "/api/v1/certificates/presented": {
+      "get": {
+        "description": "The certificate this browser connected with, and whether it expires soon.",
+        "operationId": "get_presented_certificate_api_v1_certificates_presented_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresentedCertificate"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Presented Certificate",
+        "tags": [
+          "remote access"
+        ]
+      }
+    },
     "/api/v1/certificates/{certificate_id}": {
       "delete": {
         "description": "Revoke one of your certificates: it stops working once the revocation list reloads.",
@@ -3080,6 +3280,104 @@
         "summary": "Export Preset",
         "tags": [
           "presets"
+        ]
+      }
+    },
+    "/api/v1/remote-access": {
+      "get": {
+        "description": "Secure remote access: whether it's on, who checks, and what this request presented.",
+        "operationId": "get_remote_access_api_v1_remote_access_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoteAccessOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Remote Access",
+        "tags": [
+          "remote access"
+        ]
+      },
+      "put": {
+        "description": "Choose who checks, and turn it on or off.\n\nTurning it on is refused unless this request shows it will still get through:\nwhen the server sees certificates, it must have come with one of the admin's\nown; when only the proxy checks, ``confirmed`` must be true.",
+        "operationId": "put_remote_access_api_v1_remote_access_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoteAccessChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoteAccessOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Remote Access",
+        "tags": [
+          "remote access"
+        ]
+      }
+    },
+    "/api/v1/remote-access/ca.pem": {
+      "get": {
+        "description": "The built-in CA's certificate, for a proxy's `ca-file`.",
+        "operationId": "get_client_ca_api_v1_remote_access_ca_pem_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/x-pem-file": {}
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Client Ca",
+        "tags": [
+          "remote access"
+        ]
+      }
+    },
+    "/api/v1/remote-access/crl.pem": {
+      "get": {
+        "description": "The revocation list, for a proxy's `crl-file`. It changes on every revocation and\nis republished daily; mounting the data folder's copy keeps a proxy up to date.",
+        "operationId": "get_client_crl_api_v1_remote_access_crl_pem_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/x-pem-file": {}
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Client Crl",
+        "tags": [
+          "remote access"
         ]
       }
     },

@@ -55,7 +55,41 @@
     </form>
   </div>
 </section>
+<section class="card stack" id="certificates">
+  <h2>Certificates</h2>
+  <p class="muted">A certificate lets this browser or phone reach the server when its owner
+    has turned on secure remote access.{% if presented %} This browser is using
+    <strong>{{ presented.name }}</strong>.{% endif %}</p>
+  {% set browsers = certificates | selectattr("kind", "equalto", "browser") | list %}
+  {% if browsers %}
+    <ul class="seeds">
+      {% for c in browsers %}
+        <li class="row">
+          <span><strong>{{ c.name }}</strong>{% if presented and presented.id == c.id %} <span class="badge ready">this browser</span>{% endif %}<br>
+            <small class="muted">Added {{ c.created_at[:10] }} · works until {{ c.not_after[:10] }}</small></span>
+          <form method="post" action="/account/certificates/{{ c.id }}/revoke" hx-post="/account/certificates/{{ c.id }}/revoke" hx-confirm="Revoke &quot;{{ c.name }}&quot;? The browser or phone it's installed on stops getting through." class="inline">
+            <button type="submit" class="danger">Revoke</button>
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  <div id="certificate">
+    <form method="post" action="/account/certificates" hx-post="/account/certificates" hx-target="#certificate" hx-swap="innerHTML" class="stack">
+      <label>Name <small>(so you can tell your certificates apart)</small>
+        <input name="name" maxlength="60" placeholder="e.g. My phone" autocomplete="off">
+      </label>
+      <button type="submit" class="primary">Add a certificate for this browser or phone</button>
+    </form>
+  </div>
+</section>
 {% if user.admin %}
+<section class="card stack">
+  <h2>Secure remote access</h2>
+  <p class="muted">Only devices with a certificate from this server can reach it, so it can be
+    put on the Internet.</p>
+  <p><a class="button" href="/account/remote-access">Set up secure remote access</a></p>
+</section>
 <section class="card stack" id="accounts">
   <h2>Accounts</h2>
   <p class="muted">Invite friends to this server. Each account's seeds, presets and Switches

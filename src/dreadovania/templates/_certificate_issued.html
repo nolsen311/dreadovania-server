@@ -1,0 +1,13 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{# A new browser certificate, shown once (ADR 0023). The server keeps neither file nor password. #}
+<div class="stack">
+  <p class="ok">Certificate “{{ certificate.name }}” created. It works until {{ certificate.not_after[:10] }}.</p>
+  <p><a class="button primary" href="/account/certificates/download/{{ token }}" download>Download the certificate</a></p>
+  <p>Its password, needed once when you install it:</p>
+  <p class="pairing-code" aria-label="Certificate password">{{ password }}</p>
+  {% if replacing %}<p>It replaces “{{ replacing.name }}”, which keeps working until this browser connects with the new one, and is then revoked.</p>{% endif %}
+  <p class="muted"><small>The download works once, for {{ minutes }} minutes, and the password is
+    shown only now. Neither is kept on the server: if you lose them, add a new certificate and
+    remove this one.</small></p>
+  {% include "_certificate_install.html" %}
+</div>

@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import base64
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, Field
 
-from dreadovania import accounts, auth, client_certs, devices, passkeys
+from dreadovania import accounts, auth, client_certs, devices, passkeys, remote_access
 from dreadovania.config import Settings
 from dreadovania.db import Database
 from dreadovania.problems import ApiProblem
@@ -41,12 +42,48 @@ def _db(request: Request) -> Database:
     return request.app.state.db
 
 
-def public_origin(request: Request) -> str | None:
+def main_origin(request: Request) -> str | None:
     """The configured public URL wins; otherwise the one chosen in the setup wizard."""
     settings: Settings = request.app.state.settings
     if settings.public_url is not None:
         return auth.origin_of(str(settings.public_url))
     return auth.stored_public_origin(_db(request))
+
+
+def front_door_origin(request: Request) -> str | None:
+    """Where pairing and invites are served when the server checks certificates
+    itself (ADR 0023): DREADOVANIA_FRONT_DOOR_URL, else the public URL's host on
+    the front-door port."""
+    settings: Settings = request.app.state.settings
+    if settings.front_door_url is not None:
+        return auth.origin_of(str(settings.front_door_url))
+    main = main_origin(request)
+    if main is None or not settings.front_door_port:
+        return None
+    parts = urlsplit(main)
+    host = parts.hostname or ""
+    host = f"[{host}]" if ":" in host else host
+    return f"{parts.scheme}://{host}:{settings.front_door_port}"
+
+
+def on_front_door(request: Request) -> bool:
+    peer = request.scope.get(remote_access.PEER_KEY)
+    return peer is not None and peer.front_door
+
+
+def public_origin(request: Request) -> str | None:
+    """The origin the request's pages belong to: the front door's on that port."""
+    return front_door_origin(request) if on_front_door(request) else main_origin(request)
+
+
+def uses_front_door(request: Request) -> bool:
+    """Whether pairing and invites go to the front-door port: the server checks
+    certificates itself and secure remote access is on."""
+    remote = getattr(request.app.state, "remote_access", None)
+    if remote is None:
+        return False
+    state = remote.state()
+    return state.enabled and state.mode == "server"
 
 
 def _client(request: Request) -> str:
@@ -559,7 +596,7 @@ def require_admin(user: auth.Session) -> None:
 
 
 def invite_url(request: Request, token: str) -> str | None:
-    origin = public_origin(request)
+    origin = front_door_origin(request) if uses_front_door(request) else main_origin(request)
     return f"{origin}/invite#token={token}" if origin else None
 
 
@@ -722,3 +759,163 @@ def revoke_certificate(certificate_id: str, request: Request, user: CurrentUser)
     _browser_only(user)
     if not _certs(request).revoke(user.user_id, certificate_id):
         raise ApiProblem(404, "Certificate not found")
+
+
+# ---- secure remote access (ADR 0023) --------------------------------------------------------
+
+
+class RemoteAccessOut(BaseModel):
+    enabled: bool = Field(description="Whether every connection needs a client certificate.")
+    mode: str | None = Field(
+        description="Who checks: `server` (this server's own HTTPS), `proxy` (a reverse proxy"
+        " that ends TLS) or `cloudflare`; null until chosen."
+    )
+    check_forwarded: bool = Field(
+        description="Behind a proxy or Cloudflare: also check the certificate it passes on."
+    )
+    changed_at: str | None
+    serves_tls: bool = Field(description="Whether this server serves HTTPS itself.")
+    trusted_proxies: bool = Field(description="Whether DREADOVANIA_TRUSTED_PROXIES is set.")
+    via_trusted_proxy: bool = Field(description="Whether this request came from one of them.")
+    forwarded_header: bool = Field(
+        description="Whether this request carried a certificate header from a trusted proxy."
+    )
+    presented: CertificateOut | None = Field(
+        description="The valid certificate this request came with, if any."
+    )
+    front_door: list[str] = Field(description="What stays open without a certificate.")
+    front_door_url: str | None = Field(
+        description="Where pairing and invites go when the server checks certificates itself."
+    )
+    cloudflare_expression: str = Field(description="The WAF custom rule to block with.")
+
+
+class RemoteAccessChange(BaseModel):
+    enabled: bool
+    mode: str | None = Field(default=None, description="`server`, `proxy` or `cloudflare`.")
+    check_forwarded: bool = True
+    confirmed: bool = Field(
+        default=False,
+        description="When the proxy checks alone: the admin has checked that this browser"
+        " connects with its certificate.",
+    )
+
+
+class PresentedCertificate(BaseModel):
+    certificate: CertificateOut | None = Field(
+        description="The valid certificate this request came with, if any."
+    )
+    expires_in_days: int | None = Field(
+        description="Days left, when it's a browser certificate expiring within 30 days."
+    )
+
+
+def _remote(request: Request) -> remote_access.RemoteAccess:
+    return request.app.state.remote_access
+
+
+def presented_certificate(request: Request) -> dict[str, Any] | None:
+    """The valid certificate this request came with, from TLS or a trusted proxy."""
+    remote = getattr(request.app.state, "remote_access", None)
+    if remote is None:
+        return None
+    return remote.certificate_of(request.scope.get(remote_access.PEER_KEY), request.headers)
+
+
+def _cert_out(cert: dict[str, Any]) -> CertificateOut:
+    return CertificateOut(**client_certs.ClientCertificates._public(cert))
+
+
+def remote_access_status(request: Request) -> dict[str, Any]:
+    status_ = _remote(request).status(request.scope.get(remote_access.PEER_KEY), request.headers)
+    presented = status_["presented"]
+    return status_ | {
+        "presented": _cert_out(presented) if presented else None,
+        "front_door_url": front_door_origin(request),
+    }
+
+
+def change_remote_access(
+    request: Request, user: auth.Session, enabled: bool, mode: str | None, *,
+    check_forwarded: bool, confirmed: bool,
+) -> None:  # fmt: skip
+    """Shared by the API and the settings page. Raises ApiProblem."""
+    remote = _remote(request)
+    try:
+        if not enabled:
+            remote.turn_off(user.user_id)
+            remote.choose(user.user_id, mode, check_forwarded=check_forwarded)  # type: ignore[arg-type]
+            return
+        state = remote.state()
+        if not state.enabled or state.mode != mode or state.check_forwarded != check_forwarded:
+            remote.choose(user.user_id, mode, check_forwarded=check_forwarded)  # type: ignore[arg-type]
+        remote.turn_on(user.user_id, presented_certificate(request), confirmed=confirmed)
+    except accounts.NotAdmin as exc:
+        raise ApiProblem(403, "Admin only", str(exc)) from None
+    except remote_access.RemoteAccessError as exc:
+        raise ApiProblem(409, "Secure remote access not changed", str(exc)) from None
+
+
+@protected.get("/remote-access", tags=["remote access"])
+def get_remote_access(request: Request, user: CurrentUser) -> RemoteAccessOut:
+    """Secure remote access: whether it's on, who checks, and what this request presented."""
+    require_admin(user)
+    return RemoteAccessOut(**remote_access_status(request))
+
+
+@protected.put("/remote-access", tags=["remote access"])
+def put_remote_access(
+    body: RemoteAccessChange, request: Request, user: CurrentUser
+) -> RemoteAccessOut:
+    """Choose who checks, and turn it on or off.
+
+    Turning it on is refused unless this request shows it will still get through:
+    when the server sees certificates, it must have come with one of the admin's
+    own; when only the proxy checks, ``confirmed`` must be true.
+    """
+    require_admin(user)
+    change_remote_access(
+        request, user, body.enabled, body.mode,
+        check_forwarded=body.check_forwarded, confirmed=body.confirmed,
+    )  # fmt: skip
+    return RemoteAccessOut(**remote_access_status(request))
+
+
+@protected.get(
+    "/remote-access/ca.pem", tags=["remote access"],
+    response_class=Response, responses={200: {"content": {"application/x-pem-file": {}}}},
+)  # fmt: skip
+def get_client_ca(request: Request, user: CurrentUser) -> Response:
+    """The built-in CA's certificate, for a proxy's `ca-file`."""
+    require_admin(user)
+    return Response(
+        _certs(request).ca_pem(), media_type="application/x-pem-file",
+        headers={"Content-Disposition": 'attachment; filename="dreadovania-client-ca.pem"'},
+    )  # fmt: skip
+
+
+@protected.get(
+    "/remote-access/crl.pem", tags=["remote access"],
+    response_class=Response, responses={200: {"content": {"application/x-pem-file": {}}}},
+)  # fmt: skip
+def get_client_crl(request: Request, user: CurrentUser) -> Response:
+    """The revocation list, for a proxy's `crl-file`. It changes on every revocation and
+    is republished daily; mounting the data folder's copy keeps a proxy up to date."""
+    require_admin(user)
+    return Response(
+        _certs(request).crl_pem(), media_type="application/x-pem-file",
+        headers={"Content-Disposition": 'attachment; filename="dreadovania-client-crl.pem"'},
+    )  # fmt: skip
+
+
+@protected.get("/certificates/presented", tags=["remote access"])
+def get_presented_certificate(request: Request, user: CurrentUser) -> PresentedCertificate:
+    """The certificate this browser connected with, and whether it expires soon."""
+    _browser_only(user)
+    cert = presented_certificate(request)
+    return PresentedCertificate(
+        certificate=_cert_out(cert) if cert else None,
+        expires_in_days=remote_access.expiring_soon(cert)
+        if cert and cert["kind"] == "browser"
+        else None,
+    )
