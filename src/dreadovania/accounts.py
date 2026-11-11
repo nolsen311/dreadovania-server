@@ -14,24 +14,18 @@ import shutil
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from dreadovania import auth
 from dreadovania.db import Database, utc_now
 from dreadovania.jobs import new_id
-from dreadovania.romfs import RomfsStatus
+
+if TYPE_CHECKING:
+    from dreadovania.game_files import GameFiles
 
 INVITE_LIFETIME = timedelta(days=7)
 MAX_NOTE = 60
 MAX_LIVE_INVITES = 20
-
-# What an invited account sees instead of the server's game files, which are the
-# admin's own dump, until each account can upload its own (ADR 0020 §3).
-MEMBER_ROMFS = RomfsStatus(
-    "missing",
-    "this server can't hold game files for invited accounts yet, so you can generate "
-    "seeds but not patch them",
-)
 
 
 class AccountError(Exception):
@@ -164,14 +158,19 @@ def list_accounts(db: Database, admin_id: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-def remove_account(db: Database, data_dir: Path, admin_id: str, user_id: str) -> str | None:
+def remove_account(
+    db: Database, data_dir: Path, admin_id: str, user_id: str, game_files: GameFiles | None = None
+) -> str | None:
     """Delete a member and everything they own. Returns their username, or None if unknown.
 
-    Their seeds, mods, presets, Switches, passkeys, sessions and paired devices go
-    with them (the database cascades; seed files are removed from disk). Refused
-    while one of their jobs is queued or running, and for the admin's own account.
+    Their seeds, mods, presets, game files, Switches, passkeys, sessions and paired
+    devices go with them (the database cascades; files are removed from disk).
+    Refused while one of their jobs is queued or running, while their game files
+    are being installed, and for the admin's own account.
     """
     require_admin(db, admin_id)
+    if game_files is not None and game_files.installing(user_id):
+        raise AccountError("their game files are being installed; try again when that finishes")
     with db.transaction() as conn:
         row = conn.execute("SELECT username, role FROM users WHERE id = ?", (user_id,)).fetchone()
         if row is None or row["username"] is None:
@@ -188,4 +187,6 @@ def remove_account(db: Database, data_dir: Path, admin_id: str, user_id: str) ->
             )
         conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
     shutil.rmtree(data_dir / "seeds" / user_id, ignore_errors=True)
+    if game_files is not None:
+        game_files.remove(user_id)
     return str(row["username"])

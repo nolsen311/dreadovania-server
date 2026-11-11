@@ -239,9 +239,7 @@ def _status_context(request: Request, user: auth.Session, seed: dict) -> dict[st
         )
         # Inspecting the game files walks the folder: only when patching could start.
         if seed["mod_status"] not in ("pending", "ready"):
-            context["romfs"] = (
-                request.app.state.romfs.status() if user.admin else accounts.MEMBER_ROMFS
-            )
+            context["romfs"] = request.app.state.game_files.inspector(user.user_id).status()
         if seed["mod_status"] == "ready":
             context.update(_push_context(request, user, seed))
     return context
@@ -405,13 +403,9 @@ async def purge(request: Request) -> Response:
 @router.get("/game-files")
 async def game_files_page(request: Request) -> Response:
     user = page_session(request)
-    if not user.admin:  # the server's game files are the admin's own (ADR 0020 §3)
-        return render(
-            request, "game_files.html", user=user, romfs=accounts.MEMBER_ROMFS,
-            supported=SUPPORTED_VERSIONS, upload=None, upload_blocked=accounts.MEMBER_ROMFS.message,
-        )  # fmt: skip
-    status = await run_in_threadpool(request.app.state.romfs.status)
-    uploads = request.app.state.romfs_uploads
+    game_files = request.app.state.game_files  # the account's own (ADR 0020 §3)
+    status = await run_in_threadpool(game_files.inspector(user.user_id).status)
+    uploads = game_files.uploads(user.user_id)
     return render(
         request,
         "game_files.html",
@@ -476,7 +470,12 @@ def account_page(request: Request) -> Response:
         passkeys_unavailable=_passkeys_unavailable(request),
         devices=devices.list_devices(db, user.user_id),
         server_url=public_origin(request),
-        accounts=accounts.list_accounts(db, user.user_id) if user.admin else [],
+        accounts=[
+            a | {"game_files_bytes": request.app.state.game_files.size(a["id"])}
+            for a in accounts.list_accounts(db, user.user_id)
+        ]
+        if user.admin
+        else [],
         invites=accounts.list_invites(db, user.user_id) if user.admin else [],
     )  # fmt: skip
 
@@ -549,7 +548,10 @@ async def member_remove(account_id: str, request: Request) -> Response:
             request, "_error.html", message=f"type {target['username']} exactly to confirm"
         )
     try:
-        accounts.remove_account(db, request.app.state.settings.data_dir, user.user_id, account_id)
+        accounts.remove_account(
+            db, request.app.state.settings.data_dir, user.user_id, account_id,
+            request.app.state.game_files,
+        )  # fmt: skip
     except accounts.AccountError as exc:
         return render(request, "_error.html", message=str(exc))
     return go(request, "/account")

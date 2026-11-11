@@ -33,6 +33,11 @@
             "title": "Created At",
             "type": "string"
           },
+          "game_files_bytes": {
+            "description": "Disk used by the account's game files.",
+            "title": "Game Files Bytes",
+            "type": "integer"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -56,7 +61,8 @@
           "username",
           "role",
           "created_at",
-          "seeds"
+          "seeds",
+          "game_files_bytes"
         ],
         "title": "AccountOut",
         "type": "object"
@@ -1812,7 +1818,7 @@
     },
     "/api/v1/accounts/{account_id}": {
       "delete": {
-        "description": "Remove a member and delete everything they own: seeds, presets, Switches,\npasskeys and paired devices. Refused while one of their jobs runs. Admin only.",
+        "description": "Remove a member and delete everything they own: seeds, presets, game files,\nSwitches, passkeys and paired devices. Refused while one of their jobs runs. Admin only.",
         "operationId": "remove_account_api_v1_accounts__account_id__delete",
         "parameters": [
           {
@@ -2842,7 +2848,7 @@
     },
     "/api/v1/romfs": {
       "get": {
-        "description": "Whether the server has usable game files (an extracted RomFS), and which version.\n\nFor an invited account this is always `missing`: the server's game files are\nthe admin's own, and each account will upload its own (ADR 0020 \u00a73).",
+        "description": "Whether your game files (an extracted RomFS) are usable, and which version.\n\nEach account has its own, uploaded from its own copy of the game (ADR 0020).",
         "operationId": "get_romfs_api_v1_romfs_get",
         "responses": {
           "200": {
@@ -3331,7 +3337,7 @@
         ]
       },
       "post": {
-        "description": "Patch a generated seed into the server's game files. Follow the job for progress.\n\nNeeds ready game files (see `GET /romfs`). Race seeds can be patched: patching\ndoesn't reveal the spoiler.",
+        "description": "Patch a generated seed with your game files. Follow the job for progress.\n\nNeeds ready game files (see `GET /romfs`). Race seeds can be patched: patching\ndoesn't reveal the spoiler.",
         "operationId": "patch_seed_api_v1_seeds__seed_id__mod_post",
         "parameters": [
           {

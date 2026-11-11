@@ -64,12 +64,12 @@
     {% for a in accounts %}
       <li class="row">
         <span><strong>{{ a.username }}</strong>{% if a.role == "admin" %} <span class="badge ready">admin</span>{% endif %}<br>
-          <small class="muted">Joined {{ a.created_at[:10] }} · {{ a.seeds }} seed{{ "" if a.seeds == 1 else "s" }}</small></span>
+          <small class="muted">Joined {{ a.created_at[:10] }} · {{ a.seeds }} seed{{ "" if a.seeds == 1 else "s" }}{% if a.game_files_bytes %} · game files {{ a.game_files_bytes | filesizeformat }}{% endif %}</small></span>
         {% if a.role != "admin" %}
           <details>
             <summary class="button danger">Remove</summary>
             <form method="post" action="/account/members/{{ a.id }}/remove" hx-post="/account/members/{{ a.id }}/remove" hx-target="#messages" class="stack">
-              <p>This deletes <strong>{{ a.username }}</strong>'s account and everything in it: seeds, presets, Switches, passkeys and paired devices. It can't be undone.</p>
+              <p>This deletes <strong>{{ a.username }}</strong>'s account and everything in it: seeds, presets, game files, Switches, passkeys and paired devices. It can't be undone.</p>
               <label><span>Type <strong>{{ a.username }}</strong> to confirm</span>
                 <input name="confirm" required autocomplete="off" autocapitalize="none" spellcheck="false">
               </label>
