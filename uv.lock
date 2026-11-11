@@ -300,6 +300,7 @@ version = "0.3.1"
 source = { editable = "." }
 dependencies = [
     { name = "argon2-cffi" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "jinja2" },
     { name = "mercury-engine-data-structures" },
@@ -323,6 +324,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "argon2-cffi", specifier = ">=25.1.0" },
+    { name = "cryptography", specifier = ">=50" },
     { name = "fastapi", specifier = ">=0.162.2" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "mercury-engine-data-structures", specifier = "==0.36.2" },

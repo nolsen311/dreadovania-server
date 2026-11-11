@@ -132,6 +132,117 @@
         "title": "AppLatest",
         "type": "object"
       },
+      "CertificateIssued": {
+        "description": "Install ``p12`` (base64) with ``password`` on the browser or phone. Both are shown\nonly now; the server keeps neither the private key nor the password.",
+        "properties": {
+          "certificate": {
+            "$ref": "#/components/schemas/CertificateOut"
+          },
+          "p12": {
+            "description": "The certificate and its private key, as base64 PKCS#12.",
+            "title": "P12",
+            "type": "string"
+          },
+          "password": {
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "certificate",
+          "p12",
+          "password"
+        ],
+        "title": "CertificateIssued",
+        "type": "object"
+      },
+      "CertificateOut": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "issuer": {
+            "title": "Issuer",
+            "type": "string"
+          },
+          "kind": {
+            "description": "`device` (a paired Switch) or `browser`.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "not_after": {
+            "title": "Not After",
+            "type": "string"
+          },
+          "not_before": {
+            "title": "Not Before",
+            "type": "string"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "sha256": {
+            "description": "The certificate's SHA-256 fingerprint, in hex.",
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "issuer",
+          "sha256",
+          "not_before",
+          "not_after",
+          "created_at",
+          "revoked_at",
+          "device_id"
+        ],
+        "title": "CertificateOut",
+        "type": "object"
+      },
+      "CertificateRequest": {
+        "properties": {
+          "name": {
+            "default": "",
+            "description": "Which browser or phone it's for, so you can tell them apart.",
+            "maxLength": 60,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "CertificateRequest",
+        "type": "object"
+      },
       "ConnectionTest": {
         "properties": {
           "message": {
@@ -2054,6 +2165,108 @@
         "summary": "Current Session",
         "tags": [
           "sign-in"
+        ]
+      }
+    },
+    "/api/v1/certificates": {
+      "get": {
+        "description": "Your client certificates that haven't been revoked.",
+        "operationId": "list_certificates_api_v1_certificates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CertificateOut"
+                  },
+                  "title": "Response List Certificates Api V1 Certificates Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Certificates",
+        "tags": [
+          "remote access"
+        ]
+      },
+      "post": {
+        "description": "A client certificate for a browser or phone, valid for a year.",
+        "operationId": "create_certificate_api_v1_certificates_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CertificateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificateIssued"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Certificate",
+        "tags": [
+          "remote access"
+        ]
+      }
+    },
+    "/api/v1/certificates/{certificate_id}": {
+      "delete": {
+        "description": "Revoke one of your certificates: it stops working once the revocation list reloads.",
+        "operationId": "revoke_certificate_api_v1_certificates__certificate_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "certificate_id",
+            "required": true,
+            "schema": {
+              "title": "Certificate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Certificate",
+        "tags": [
+          "remote access"
         ]
       }
     },
