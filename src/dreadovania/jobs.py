@@ -85,8 +85,10 @@ class JobQueue:
         self.romfs = romfs
         # Resolves a Switch's address (tests replace it).
         self.switch_resolver: switches.Resolver = switches.resolve
-        # True while uploaded game files are being installed (set by the app).
-        self.romfs_busy: Callable[[], bool] = lambda: False
+        # Each account's own game files, and whether new ones are being installed
+        # for an account right now (ADR 0020 §3; the app sets both).
+        self.romfs_for: Callable[[str], RomfsInspector | None] = lambda _owner: self.romfs
+        self.romfs_busy: Callable[[str], bool] = lambda _owner: False
 
         self._loop: asyncio.AbstractEventLoop | None = None
         self._wakeup = asyncio.Event()
@@ -146,19 +148,11 @@ class JobQueue:
         return Submitted(seed_id=seed_id, job_id=job_id)
 
     def submit_export(self, owner_id: str, seed_id: str) -> Submitted:
-        """Queue patching a ready seed into the user's game files (ADR 0013 §2)."""
-        with self.db.connect() as conn:
-            role = conn.execute("SELECT role FROM users WHERE id = ?", (owner_id,)).fetchone()
-        if role is None or role["role"] != "admin":
-            # Until each account has its own game files (ADR 0020 §3), the server's
-            # are the admin's own dump, and patching with them is for the admin only.
-            raise CannotPatch(
-                "patching needs your own game files, which this server can't hold for "
-                "invited accounts yet"
-            )
-        if self.romfs is None:
+        """Queue patching a ready seed into its owner's game files (ADR 0013 §2, ADR 0020 §3)."""
+        romfs = self.romfs_for(owner_id)
+        if romfs is None:
             raise CannotPatch("patching isn't available on this server")
-        game_files = self.romfs.status()
+        game_files = romfs.status()
         if not game_files.ready:
             raise CannotPatch(f"the game files aren't ready: {game_files.message}")
         job_id, now = new_id(), utc_now()
@@ -236,13 +230,15 @@ class JobQueue:
         self._notify_from_any_thread()
         return Submitted(seed_id=seed_id, job_id=job_id)
 
-    def export_running(self) -> bool:
-        """Whether a patch is reading the game files right now."""
+    def export_running(self, owner_id: str | None = None) -> bool:
+        """Whether a patch is reading game files right now (an account's, or anyone's)."""
+        where, params = "kind = 'export' AND status = 'running'", []
+        if owner_id is not None:
+            where += " AND owner_id = ?"
+            params.append(owner_id)
         with self.db.connect() as conn:
             return (
-                conn.execute(
-                    "SELECT 1 FROM jobs WHERE kind = 'export' AND status = 'running' LIMIT 1"
-                ).fetchone()
+                conn.execute(f"SELECT 1 FROM jobs WHERE {where} LIMIT 1", params).fetchone()  # noqa: S608
                 is not None
             )
 
@@ -449,8 +445,8 @@ class JobQueue:
         )
 
     async def _export(self, job: dict[str, Any], workdir: Path, on_progress: Any) -> _Update:
-        romfs = self.romfs
-        if self.romfs_busy():
+        romfs = self.romfs_for(job["owner_id"])
+        if self.romfs_busy(job["owner_id"]):
             raise RunnerError("new game files are being installed; patch again when that finishes")
         if romfs is None:
             raise RunnerError("patching isn't available on this server")

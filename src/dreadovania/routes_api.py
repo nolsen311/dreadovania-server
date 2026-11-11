@@ -18,8 +18,8 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 
 from dreadovania import auth, rdv_presets
-from dreadovania.accounts import MEMBER_ROMFS
 from dreadovania.app_updates import MINIMUM_APP_VERSION, UpdateProblem
+from dreadovania.game_files import GameFiles
 from dreadovania.jobs import CannotPatch, CannotSend, JobQueue, QueueFull
 from dreadovania.mods import ModError, iter_mod_tar, iter_mod_zip, mod_manifest, tar_size
 from dreadovania.presets import MAX_PRESET_BYTES, PresetInfo, PresetStore
@@ -214,22 +214,20 @@ class RomfsOut(BaseModel):
 # ---- game files -----------------------------------------------------------------------------
 
 
-def _admin_only(user: auth.Session) -> None:
-    if not user.admin:
-        raise ApiProblem(403, "Admin only", MEMBER_ROMFS.message)
+def _game_files(request: Request) -> GameFiles:
+    return request.app.state.game_files
 
 
 @router.get("/romfs", tags=["game files"])
 async def get_romfs(request: Request, user: CurrentUser) -> RomfsOut:
-    """Whether the server has usable game files (an extracted RomFS), and which version.
+    """Whether your game files (an extracted RomFS) are usable, and which version.
 
-    For an invited account this is always `missing`: the server's game files are
-    the admin's own, and each account will upload its own (ADR 0020 §3).
+    Each account has its own, uploaded from its own copy of the game (ADR 0020).
     """
-    if not user.admin:
-        return RomfsOut.of(MEMBER_ROMFS, MEMBER_ROMFS.message)
-    status = await run_in_threadpool(request.app.state.romfs.status)
-    return RomfsOut.of(status, await run_in_threadpool(_uploads(request).unavailable_reason))
+    romfs = _game_files(request).inspector(user.user_id)
+    status = await run_in_threadpool(romfs.status)
+    uploads = _uploads(request, user)
+    return RomfsOut.of(status, await run_in_threadpool(uploads.unavailable_reason))
 
 
 # ---- uploading game files (ADR 0013 §1) -------------------------------------------------------
@@ -260,8 +258,9 @@ class UploadOut(BaseModel):
         return cls(**asdict(s))
 
 
-def _uploads(request: Request) -> RomfsUploads:
-    return request.app.state.romfs_uploads
+def _uploads(request: Request, user: auth.Session) -> RomfsUploads:
+    """The signed-in account's own uploads: never anyone else's."""
+    return _game_files(request).uploads(user.user_id)
 
 
 def _upload_problem(exc: UploadError) -> ApiProblem:
@@ -278,8 +277,7 @@ def _upload_problem(exc: UploadError) -> ApiProblem:
 @router.get("/romfs/upload", tags=["game files"])
 def get_upload(request: Request, user: CurrentUser) -> UploadOut:
     """The current (or last) game files upload."""
-    _admin_only(user)
-    current = _uploads(request).current()
+    current = _uploads(request, user).current()
     if current is None:
         raise _not_found("Upload")
     return UploadOut.of(current)
@@ -298,9 +296,8 @@ async def start_upload(
 
     Then send it in chunks with `PATCH`, and install it with `POST …/install`.
     """
-    _admin_only(user)
     try:
-        upload, created = await _uploads(request).start(body.size, body.fingerprint)
+        upload, created = await _uploads(request, user).start(body.size, body.fingerprint)
     except UploadError as exc:
         raise _upload_problem(exc) from None
     if not created:
@@ -327,12 +324,11 @@ async def upload_chunk(upload_id: str, request: Request, user: CurrentUser) -> U
 
     A 409 with `offset` means the server has a different amount: continue from there.
     """
-    _admin_only(user)
     raw_offset = request.headers.get("upload-offset", "")
     if not raw_offset.isdigit():
         raise ApiProblem(400, "Upload-Offset required", "send the chunk's starting byte")
     try:
-        upload = await _uploads(request).write(upload_id, int(raw_offset), request.stream())
+        upload = await _uploads(request, user).write(upload_id, int(raw_offset), request.stream())
     except UploadError as exc:
         raise _upload_problem(exc) from None
     return UploadOut.of(upload)
@@ -349,9 +345,8 @@ async def install_upload(upload_id: str, request: Request, user: CurrentUser) ->
     Runs in the background: follow it with `GET /romfs/upload`. The current game
     files are only replaced if the new ones are a supported, unmodified RomFS.
     """
-    _admin_only(user)
     try:
-        upload = await _uploads(request).install(upload_id)
+        upload = await _uploads(request, user).install(upload_id)
     except UploadError as exc:
         raise _upload_problem(exc) from None
     return UploadOut.of(upload)
@@ -362,9 +357,8 @@ async def install_upload(upload_id: str, request: Request, user: CurrentUser) ->
 )
 async def discard_upload(upload_id: str, request: Request, user: CurrentUser) -> None:
     """Discard an upload and the data received so far."""
-    _admin_only(user)
     try:
-        await _uploads(request).discard(upload_id)
+        await _uploads(request, user).discard(upload_id)
     except UploadError as exc:
         raise _upload_problem(exc) from None
 
@@ -577,7 +571,7 @@ def delete_seed(seed_id: str, request: Request, user: CurrentUser) -> None:
 
 @router.post("/seeds/{seed_id}/mod", status_code=status.HTTP_202_ACCEPTED, tags=["patching"])
 def patch_seed(seed_id: str, request: Request, user: CurrentUser) -> Submitted:
-    """Patch a generated seed into the server's game files. Follow the job for progress.
+    """Patch a generated seed with your game files. Follow the job for progress.
 
     Needs ready game files (see `GET /romfs`). Race seeds can be patched: patching
     doesn't reveal the spoiler.

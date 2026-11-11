@@ -546,6 +546,7 @@ class AccountOut(BaseModel):
     role: str = Field(description="`admin` or `member`.")
     created_at: str
     seeds: int
+    game_files_bytes: int = Field(description="Disk used by the account's game files.")
 
 
 def require_admin(user: auth.Session) -> None:
@@ -628,19 +629,26 @@ def revoke_invite(invite_id: str, request: Request, user: CurrentUser) -> None:
 def list_accounts(request: Request, user: CurrentUser) -> list[AccountOut]:
     """Every account on this server, the admin first. Admin only."""
     require_admin(user)
-    return [AccountOut(**a) for a in accounts.list_accounts(_db(request), user.user_id)]
+    game_files = request.app.state.game_files
+    return [
+        AccountOut(**a, game_files_bytes=game_files.size(a["id"]))
+        for a in accounts.list_accounts(_db(request), user.user_id)
+    ]
 
 
 @protected.delete(
     "/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["accounts"]
 )
 def remove_account(account_id: str, request: Request, user: CurrentUser) -> None:
-    """Remove a member and delete everything they own: seeds, presets, Switches,
-    passkeys and paired devices. Refused while one of their jobs runs. Admin only."""
+    """Remove a member and delete everything they own: seeds, presets, game files,
+    Switches, passkeys and paired devices. Refused while one of their jobs runs. Admin only."""
     require_admin(user)
     settings: Settings = request.app.state.settings
     try:
-        removed = accounts.remove_account(_db(request), settings.data_dir, user.user_id, account_id)
+        removed = accounts.remove_account(
+            _db(request), settings.data_dir, user.user_id, account_id,
+            request.app.state.game_files,
+        )  # fmt: skip
     except accounts.AccountError as exc:
         raise ApiProblem(409, "Account not removed", str(exc)) from None
     if removed is None:

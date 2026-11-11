@@ -17,6 +17,7 @@ from dreadovania import __version__, auth, problems, routes_api, routes_auth, ui
 from dreadovania.app_updates import AppUpdates
 from dreadovania.config import Settings
 from dreadovania.db import Database
+from dreadovania.game_files import GameFiles, admin_id
 from dreadovania.jobs import JobQueue
 from dreadovania.presets import PresetStore
 from dreadovania.romfs import RomfsInspector
@@ -87,12 +88,25 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         max_bytes=settings.max_romfs_upload_bytes,
         max_files=settings.max_romfs_files,
         chunk_size=settings.romfs_upload_chunk_bytes,
-        is_busy=queue.export_running,
+        is_busy=lambda: queue.export_running(admin_id(db)),
     )
-    # Never swap the game files under a running patch, nor patch during a swap.
-    queue.romfs_busy = lambda: uploads.installing
     uploads.recover()
-    app.state.romfs_uploads = uploads
+    # Each account patches with its own game files (ADR 0020 §3). Never swap an
+    # account's game files under its running patch, nor patch during a swap.
+    game_files = GameFiles(
+        db,
+        settings.data_dir,
+        app.state.romfs,
+        uploads,
+        max_bytes=settings.max_romfs_upload_bytes,
+        max_files=settings.max_romfs_files,
+        chunk_size=settings.romfs_upload_chunk_bytes,
+        export_running=queue.export_running,
+    )
+    queue.romfs_for = game_files.inspector
+    queue.romfs_busy = game_files.installing
+    app.state.romfs_uploads = uploads  # the admin's
+    app.state.game_files = game_files
     try:
         yield
     finally:

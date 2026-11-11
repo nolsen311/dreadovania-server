@@ -36,7 +36,7 @@ the server distributing game content.
    account (which deletes its seeds, presets, game files, Switches, passkeys and
    devices). Server settings stay in environment variables, as now.
 3. **Each account uploads its own game files.** Game files move from one
-   server-wide folder to one per account, under `data/romfs/<account id>/`.
+   server-wide folder to one per account, under `data/accounts/<account id>/romfs/`.
    Patching a seed uses only its owner's files. The upload page, the version
    check and the "game files aren't ready" messages work per account.
    - The existing folder becomes the admin's: on upgrade, `data/romfs` (or the
@@ -47,6 +47,11 @@ the server distributing game content.
    - Disk use: a few GB per account that patches seeds. The Game files page
      shows each account its own size; the admin's account list shows each
      account's total.
+   - Amended while implementing it (accounts part 2): this said
+     `data/romfs/<account id>/`, but `data/romfs` is the admin's RomFS itself.
+     Folders inside it would sit among the admin's game files, and installing a
+     new upload replaces that whole folder. Members' folders are therefore under
+     `data/accounts/`, with their uploads beside them.
 4. **Seeds stay private; share by permalink.** Nothing about another account is
    visible. To play the same seed, one person copies a seed's permalink and the
    other generates from it; each patches it with their own game files. The server

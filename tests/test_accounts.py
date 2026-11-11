@@ -174,46 +174,6 @@ def test_the_admin_sees_every_account(client: TestClient) -> None:
     assert "ridley" in page and "Create an invite link" in page
 
 
-# ---- the server's game files stay the admin's (until ADR 0020 §3) ----------------------------
-
-
-def test_members_cant_use_or_replace_the_servers_game_files(client: TestClient) -> None:
-    as_member(client)
-    romfs = client.get("/api/v1/romfs", headers=H).json()
-    assert romfs["ready"] is False and romfs["upload_allowed"] is False
-    assert "invited accounts" in romfs["message"]
-    upload = client.post("/api/v1/romfs/upload", json={"size": 1, "fingerprint": "x"}, headers=H)
-    assert upload.status_code == 403
-    assert client.get("/api/v1/romfs/upload", headers=H).status_code == 403
-    assert "invited accounts" in client.get("/game-files").text
-
-    r = client.post("/api/v1/seeds", json={"preset_id": "starter_preset"}, headers=H)
-    assert r.status_code == 202  # generating works
-    seed_id = r.json()["seed_id"]
-    assert wait_for_job(client, r.json()["job_id"])["status"] == "succeeded"
-    patch = client.post(f"/api/v1/seeds/{seed_id}/mod", headers=H)
-    assert patch.status_code == 409
-    assert "your own game files" in patch.json()["detail"]
-
-
-def test_from_the_switch_app_too_only_the_admin_can_patch(client: TestClient) -> None:
-    def patch_from_switch() -> str:
-        device = pair(client, pairing_code(client))
-        r = client.post("/api/v1/seeds", json={"preset_id": "starter_preset"}, headers=H)
-        assert wait_for_job(client, r.json()["job_id"])["status"] == "succeeded"
-        cookie = client.cookies["dreadovania_session"]
-        client.cookies.clear()
-        patch = client.post(f"/api/v1/seeds/{r.json()['seed_id']}/mod",
-                            headers=as_device(device["token"]))  # fmt: skip
-        use_session(client, cookie)
-        assert patch.status_code == 409  # this test server has no game files at all
-        return patch.json()["detail"]
-
-    assert "your own game files" not in patch_from_switch()  # the admin's Switch
-    as_member(client)
-    assert "your own game files" in patch_from_switch()  # a member's Switch
-
-
 # ---- removing an account ------------------------------------------------------------------------
 
 

@@ -11,9 +11,9 @@ checked first (no paths outside the target, no links, size and file-count
 limits). The result is validated like a mounted RomFS, and only a valid one
 replaces the current game files, by renaming.
 
-There is one upload at a time, for the whole server: the game files are shared.
-Uploading is refused when the game files folder is a mount (replace it on the
-host instead). File names and paths are never logged.
+Each account has its own game files and one upload at a time (ADR 0020 §3; see
+``game_files``). Uploading is refused when the game files folder is a mount
+(replace it on the host instead). File names and paths are never logged.
 """
 
 from __future__ import annotations
