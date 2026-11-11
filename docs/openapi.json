@@ -1874,6 +1874,20 @@
       "get": {
         "description": "The latest Switch app release this server has verified (its SHA-256 and its\nbuild-provenance attestation), and the oldest app version it works with.",
         "operationId": "app_latest_api_v1_app_latest_get",
+        "parameters": [
+          {
+            "description": "Ask GitHub now rather than use the last answer. GitHub is asked at most every 5 minutes, whoever asks (ADR 0022).",
+            "in": "query",
+            "name": "check",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Ask GitHub now rather than use the last answer. GitHub is asked at most every 5 minutes, whoever asks (ADR 0022).",
+              "title": "Check",
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -1884,6 +1898,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "App Latest",

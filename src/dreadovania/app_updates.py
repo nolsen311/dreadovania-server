@@ -31,6 +31,9 @@ ASSET = "dreadovania.nro"
 # older apps can't handle; they are then told to update first (ADR 0021 §4).
 MINIMUM_APP_VERSION = "0.2.0"
 CHECK_EVERY = 6 * 60 * 60  # seconds between release checks
+# When the app asks to check now (ADR 0022), GitHub is asked again at most this
+# often, whoever asks; GitHub allows 60 unauthenticated requests an hour.
+CHECK_NOW_EVERY = 5 * 60
 MAX_NRO_BYTES = 64 * 1024 * 1024
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 _VERSION = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
@@ -113,13 +116,19 @@ class AppUpdates:
         self._checked_at: float | None = None
         self._result: AppRelease | UpdateProblem | None = None
 
-    def latest(self) -> AppRelease:
-        """The latest verified release, or UpdateProblem saying why there's none."""
+    def latest(self, check_now: bool = False) -> AppRelease:
+        """The latest verified release, or UpdateProblem saying why there's none.
+
+        ``check_now`` asks GitHub again unless it was asked in the last
+        CHECK_NOW_EVERY seconds (ADR 0022); otherwise the answer is at most
+        CHECK_EVERY seconds old.
+        """
         if not self.enabled:
             raise UpdateProblem("app updates are turned off on this server")
         with self._lock:
             now = self.clock()
-            if self._checked_at is None or now - self._checked_at >= CHECK_EVERY:
+            every = CHECK_NOW_EVERY if check_now else CHECK_EVERY
+            if self._checked_at is None or now - self._checked_at >= every:
                 try:
                     self._result = self._check()
                 except UpdateProblem as exc:

@@ -215,3 +215,36 @@ def test_versions_parse() -> None:
     assert app_updates.parse_version("0.10.0") == (0, 10, 0)
     assert app_updates.parse_version("v1.0") is None
     assert app_updates.parse_version("latest") is None
+
+
+def test_checking_now_asks_github_again_at_most_every_few_minutes(tmp_path: Path) -> None:
+    github = FakeGitHub(tag="v0.4.1")
+    clock = [0.0]
+    updates = AppUpdates(tmp_path, fetch=github, verify=accept, clock=lambda: clock[0])
+    assert updates.latest().version == "0.4.1"
+    github.tag = "v0.4.2"  # a new release appears
+    clock[0] += 60
+    assert updates.latest().version == "0.4.1"  # the last answer, without check_now
+    assert updates.latest(check_now=True).version == "0.4.1"  # asked a minute ago: too soon
+    clock[0] += app_updates.CHECK_NOW_EVERY
+    calls = len(github.calls)
+    assert updates.latest(check_now=True).version == "0.4.2"  # asked again
+    assert len(github.calls) > calls
+    calls = len(github.calls)
+    assert updates.latest(check_now=True).version == "0.4.2"
+    assert len(github.calls) == calls  # and not again right away
+
+
+def test_the_app_can_ask_to_check_now(client: TestClient) -> None:
+    github = FakeGitHub(tag="v0.4.1")
+    clock = [0.0]
+    client.app.state.app_updates = AppUpdates(
+        Path(client.app.state.settings.data_dir), fetch=github, verify=accept,
+        clock=lambda: clock[0],
+    )  # fmt: skip
+    assert client.get("/api/v1/app/latest", headers=H).json()["version"] == "0.4.1"
+    github.tag = "v0.4.2"
+    clock[0] += app_updates.CHECK_NOW_EVERY
+    assert client.get("/api/v1/app/latest", headers=H).json()["version"] == "0.4.1"
+    latest = client.get("/api/v1/app/latest?check=true", headers=H).json()
+    assert latest["version"] == "0.4.2"
