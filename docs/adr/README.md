@@ -27,3 +27,4 @@ supersedes the old one; don't rewrite history.
 | [0019](0019-preset-editor.md) | Editing every randomizer setting in the web UI | Proposed |
 | [0020](0020-accounts.md) | Accounts: friends on the same server, by invitation | Proposed |
 | [0021](0021-app-updates.md) | The server keeps the Switch app up to date | Proposed |
+| [0022](0022-check-for-app-updates-now.md) | The Switch app can ask for an app update check now | Proposed |

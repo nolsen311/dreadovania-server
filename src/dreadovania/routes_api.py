@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from dataclasses import asdict
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
@@ -866,12 +866,22 @@ class AppLatest(BaseModel):
 
 
 @router.get("/app/latest", tags=["app"])
-async def app_latest(request: Request, user: CurrentUser) -> AppLatest:
+async def app_latest(
+    request: Request,
+    user: CurrentUser,
+    check: Annotated[
+        bool,
+        Query(
+            description="Ask GitHub now rather than use the last answer. GitHub is "
+            "asked at most every 5 minutes, whoever asks (ADR 0022)."
+        ),
+    ] = False,
+) -> AppLatest:
     """The latest Switch app release this server has verified (its SHA-256 and its
     build-provenance attestation), and the oldest app version it works with."""
     del user
     try:
-        release = await run_in_threadpool(request.app.state.app_updates.latest)
+        release = await run_in_threadpool(request.app.state.app_updates.latest, check)
     except UpdateProblem as exc:
         return AppLatest(available=False, minimum_version=MINIMUM_APP_VERSION, reason=str(exc))
     return AppLatest(
