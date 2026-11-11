@@ -28,3 +28,4 @@ supersedes the old one; don't rewrite history.
 | [0020](0020-accounts.md) | Accounts: friends on the same server, by invitation | Proposed |
 | [0021](0021-app-updates.md) | The server keeps the Switch app up to date | Proposed |
 | [0022](0022-check-for-app-updates-now.md) | The Switch app can ask for an app update check now | Proposed |
+| [0023](0023-secure-remote-access.md) | Secure remote access with client certificates | Proposed |
