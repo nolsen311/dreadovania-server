@@ -175,6 +175,7 @@ def _server_context(tmp_path: Path, certs: ClientCertificates) -> ssl.SSLContext
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
         serialization.NoEncryption()))  # fmt: skip
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.load_cert_chain(tmp_path / "server.pem", tmp_path / "server.key")
     ctx.verify_mode = ssl.CERT_REQUIRED
     ctx.load_verify_locations(cadata=certs.ca_pem().decode())
@@ -195,6 +196,7 @@ def _handshake(server_ctx: ssl.SSLContext, issued, tmp_path: Path) -> bool:
         )
     )
     client_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    client_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     client_ctx.check_hostname = False
     client_ctx.verify_mode = ssl.CERT_NONE  # this test is about the client's certificate
     client_ctx.load_cert_chain(tmp_path / "client.pem")
