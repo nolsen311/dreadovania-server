@@ -56,6 +56,12 @@ comment saying why, if any required check hasn't passed, the PR has conflicts or
 is a draft, or new commits arrived after your comment. A 👍 on your comment means
 it merged. Only the repository owner can trigger it (see ADR 0012).
 
+**Stacked pull requests** (ADR 0024): sign off from the bottom up. Comment
+`/signoff` on the bottom PR, the one that targets `main`. Once it has merged,
+change the next PR's base to `main` (or ask Claude to), then comment `/signoff`
+on that one. A `/signoff` on a PR that doesn't target `main` is refused, because
+merging it would also merge the PRs below it without your sign-off.
+
 **By hand on the web:**
 
 GitHub's "Require sign-off on web-based commits" setting does **not** add a
