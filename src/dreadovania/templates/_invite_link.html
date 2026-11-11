@@ -1,0 +1,13 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{# A new invite link, shown once (ADR 0020). #}
+<div class="stack">
+  {% if url %}
+    <p>Send this link to {{ invite.note or "the person you're inviting" }}:</p>
+    <p><input type="text" readonly value="{{ url }}" aria-label="Invite link" data-select-on-focus></p>
+  {% else %}
+    <p>This server's address isn't known yet, so there's no link. The invite token is:</p>
+    <p><code>{{ token }}</code></p>
+  {% endif %}
+  <p class="muted"><small>It works once, until {{ invite.expires_at[:10] }}. It's shown only now: if you lose it, revoke it and create another.</small></p>
+  <a class="button" href="/account">Done</a>
+</div>

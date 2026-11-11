@@ -75,7 +75,7 @@ def test_add_a_passkey_then_sign_in_with_it(client: TestClient) -> None:
     r = sign_in(client, device)
     assert r.status_code == 200, r.text
     assert r.json() == {"username": "samus"}
-    assert client.get("/api/v1/auth/session").json() == {"username": "samus"}
+    assert client.get("/api/v1/auth/session").json() == {"username": "samus", "admin": True}
     assert client.get("/api/v1/passkeys").json()[0]["last_used_at"]
 
 

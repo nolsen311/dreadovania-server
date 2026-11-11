@@ -54,12 +54,12 @@ def _all_routes(routes, prefix: str = ""):
 
 
 def ui_routes(client: TestClient) -> list[tuple[str, str]]:
-    """Every UI route that changes something, except sign-in itself."""
+    """Every UI route that changes something, except sign-in and joining by invite."""
     routes = []
     for prefix, route in _all_routes(client.app.routes):
         methods = getattr(route, "methods", None) or set()
         path = prefix + getattr(route, "path", "")
-        if path.startswith(("/api/", "/static")) or path in ("/setup", "/login"):
+        if path.startswith(("/api/", "/static")) or path in ("/setup", "/login", "/invite"):
             continue
         for method in methods & {"POST"}:
             routes.append((method, path.replace("{seed_id}", "x").replace("{job_id}", "x")

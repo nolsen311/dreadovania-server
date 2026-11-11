@@ -12,7 +12,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, Field
 
-from dreadovania import auth, devices, passkeys
+from dreadovania import accounts, auth, devices, passkeys
 from dreadovania.config import Settings
 from dreadovania.db import Database
 from dreadovania.problems import ApiProblem
@@ -29,6 +29,8 @@ SETUP_LIMIT = {"per_client": 10, "overall": 30, "window_seconds": 15 * 60}
 # Exchanging a pairing code is a guess at a secret, so it is limited like sign-in.
 PAIR_LIMIT = {"per_client": 10, "overall": 50, "window_seconds": 15 * 60}
 PASSKEY_START_LIMIT = {"per_client": 60, "overall": 600, "window_seconds": 15 * 60}
+# Accepting an invite is a guess at a secret too; every try counts, as for setup.
+INVITE_LIMIT = {"per_client": 10, "overall": 30, "window_seconds": 15 * 60}
 
 
 # ---- helpers ------------------------------------------------------------------------
@@ -171,6 +173,10 @@ class SignedIn(BaseModel):
     username: str
 
 
+class SessionOut(SignedIn):
+    admin: bool = Field(description="Whether this is the server's admin account (ADR 0020).")
+
+
 # ---- routes ------------------------------------------------------------------------------
 
 
@@ -267,9 +273,9 @@ def login(body: LoginRequest, request: Request, response: Response) -> SignedIn:
 
 
 @protected.get("/auth/session", tags=["sign-in"])
-def current_session(user: CurrentUser) -> SignedIn:
+def current_session(user: CurrentUser) -> SessionOut:
     """Who is signed in. Returns 401 when nobody is."""
-    return SignedIn(username=user.username)
+    return SessionOut(username=user.username, admin=user.admin)
 
 
 @protected.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT, tags=["sign-in"])
@@ -502,3 +508,140 @@ def remove_device(device_id: str, request: Request, user: CurrentUser) -> None:
     _browser_only(user)
     if not devices.remove(_db(request), user.user_id, device_id):
         raise ApiProblem(404, "Device not found")
+
+
+# ---- accounts and invites (ADR 0020) ---------------------------------------------------------
+
+
+class InviteRequest(BaseModel):
+    note: str = Field(
+        default="", max_length=accounts.MAX_NOTE,
+        description="Who it's for, so you can tell invites apart. Shown only to the admin.",
+    )  # fmt: skip
+
+
+class InviteOut(BaseModel):
+    id: str
+    note: str
+    created_at: str
+    expires_at: str
+
+
+class InviteCreated(InviteOut):
+    """Send ``url`` to the person you're inviting. It works once, and is shown only now."""
+
+    token: str
+    url: str | None = Field(description="The invite link, when the server's address is known.")
+
+
+class AcceptInvite(BaseModel):
+    token: str = Field(max_length=128)
+    username: str = Field(max_length=64)
+    password: str = Field(max_length=auth.MAX_PASSWORD_LENGTH)
+
+
+class AccountOut(BaseModel):
+    id: str
+    username: str
+    role: str = Field(description="`admin` or `member`.")
+    created_at: str
+    seeds: int
+
+
+def require_admin(user: auth.Session) -> None:
+    """Admin-only, and only from a browser: a device token can never manage accounts."""
+    if user.device_id is not None:  # pragma: no cover - DEVICE_ROUTES already refuses these
+        raise ApiProblem(403, "Not allowed for devices", "sign in to the web app to do this")
+    if not user.admin:
+        raise ApiProblem(403, "Admin only", "only the server's admin can manage accounts")
+
+
+def invite_url(request: Request, token: str) -> str | None:
+    origin = public_origin(request)
+    return f"{origin}/invite#token={token}" if origin else None
+
+
+def perform_accept_invite(
+    request: Request, response: Response, token: str, username: str, password: str
+) -> str:
+    """Accepting an invite, shared by the API and the web UI. Returns the username.
+
+    Raises ApiProblem; on success the new account is signed in on ``response``.
+    """
+    db = _db(request)
+    if auth.setup_required(db):
+        raise ApiProblem(503, "Setup required", "finish first-run setup first")
+    origin = public_origin(request)
+    check_origin(request, origin, required=False)
+    limiter: auth.AttemptLimiter = request.app.state.invite_limiter
+    client = _client(request)
+    try:
+        limiter.check(client)
+    except auth.RateLimited as exc:
+        raise _rate_limited(exc) from None
+    limiter.record(client)
+    try:
+        user_id = accounts.accept_invite(db, token, username, password)
+    except accounts.InvalidInvite as exc:
+        raise ApiProblem(403, "Invalid invite", str(exc)) from None
+    except (accounts.AccountError, auth.AuthError) as exc:
+        raise ApiProblem(400, "Account not created", str(exc)) from None
+    _set_session_cookie(response, auth.create_session(db, user_id), origin)
+    return username
+
+
+@public.post("/invites/accept", status_code=status.HTTP_201_CREATED, tags=["accounts"])
+def accept_invite(body: AcceptInvite, request: Request, response: Response) -> SignedIn:
+    """Create an account with an invite link's token, and sign in to it."""
+    return SignedIn(
+        username=perform_accept_invite(request, response, body.token, body.username, body.password)
+    )
+
+
+@protected.get("/invites", tags=["accounts"])
+def list_invites(request: Request, user: CurrentUser) -> list[InviteOut]:
+    """Invites that haven't been used, revoked or expired. Admin only."""
+    require_admin(user)
+    return [InviteOut(**i) for i in accounts.list_invites(_db(request), user.user_id)]
+
+
+@protected.post("/invites", status_code=status.HTTP_201_CREATED, tags=["accounts"])
+def create_invite(body: InviteRequest, request: Request, user: CurrentUser) -> InviteCreated:
+    """A one-time invite link, valid for 7 days. Admin only."""
+    require_admin(user)
+    try:
+        token, invite = accounts.create_invite(_db(request), user.user_id, body.note)
+    except accounts.AccountError as exc:
+        raise ApiProblem(409, "Invite not created", str(exc)) from None
+    return InviteCreated(**invite, token=token, url=invite_url(request, token))
+
+
+@protected.delete("/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["accounts"])
+def revoke_invite(invite_id: str, request: Request, user: CurrentUser) -> None:
+    """Revoke an unused invite: its link stops working. Admin only."""
+    require_admin(user)
+    if not accounts.revoke_invite(_db(request), user.user_id, invite_id):
+        raise ApiProblem(404, "Invite not found")
+
+
+@protected.get("/accounts", tags=["accounts"])
+def list_accounts(request: Request, user: CurrentUser) -> list[AccountOut]:
+    """Every account on this server, the admin first. Admin only."""
+    require_admin(user)
+    return [AccountOut(**a) for a in accounts.list_accounts(_db(request), user.user_id)]
+
+
+@protected.delete(
+    "/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["accounts"]
+)
+def remove_account(account_id: str, request: Request, user: CurrentUser) -> None:
+    """Remove a member and delete everything they own: seeds, presets, Switches,
+    passkeys and paired devices. Refused while one of their jobs runs. Admin only."""
+    require_admin(user)
+    settings: Settings = request.app.state.settings
+    try:
+        removed = accounts.remove_account(_db(request), settings.data_dir, user.user_id, account_id)
+    except accounts.AccountError as exc:
+        raise ApiProblem(409, "Account not removed", str(exc)) from None
+    if removed is None:
+        raise ApiProblem(404, "Account not found")

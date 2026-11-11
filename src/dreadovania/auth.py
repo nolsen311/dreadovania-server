@@ -136,7 +136,7 @@ def complete_setup(db: Database, token: str, username: str, password: str, publi
             )
         user_id, now = new_id(), utc_now()
         conn.execute(
-            "INSERT INTO users (id, created_at, username) VALUES (?, ?, ?)",
+            "INSERT INTO users (id, created_at, username, role) VALUES (?, ?, ?, 'admin')",
             (user_id, now, username),
         )
         conn.execute(
@@ -196,6 +196,7 @@ class Session:
     username: str
     renewed: bool  # True when the expiry was just pushed forward (re-send the cookie)
     device_id: str | None = None  # set when a paired device's token is used (ADR 0017)
+    admin: bool = False  # the account created at setup (ADR 0020)
 
 
 def create_session(db: Database, user_id: str) -> str:
@@ -215,7 +216,7 @@ def resolve_session(db: Database, token: str) -> Session | None:
     token_hash = _hash_token(token)
     with db.connect() as conn:
         row = conn.execute(
-            "SELECT s.user_id, s.last_used_at, s.expires_at, u.username FROM sessions s"
+            "SELECT s.user_id, s.last_used_at, s.expires_at, u.username, u.role FROM sessions s"
             " JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?",
             (token_hash,),
         ).fetchone()
@@ -230,7 +231,10 @@ def resolve_session(db: Database, token: str) -> Session | None:
                 "UPDATE sessions SET last_used_at = ?, expires_at = ? WHERE token_hash = ?",
                 (_iso(now), _iso(now + SESSION_LIFETIME), token_hash),
             )
-    return Session(user_id=row["user_id"], username=row["username"], renewed=renew)
+    return Session(
+        user_id=row["user_id"], username=row["username"], renewed=renew,
+        admin=row["role"] == "admin",
+    )  # fmt: skip
 
 
 def delete_session(db: Database, token: str) -> None:

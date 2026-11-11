@@ -1,0 +1,20 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{% extends "base.html" %}
+{% block title %}Join · Dreadovania{% endblock %}
+{% block content %}
+<h1>Join this server</h1>
+<p>You've been invited to this Dreadovania server. Choose the username and password you'll sign in with.</p>
+<p id="token-missing" class="error" hidden>No invite found. Open the full invite link you were sent (it ends in <code>#token=…</code>).</p>
+<form method="post" action="/invite" hx-post="/invite" hx-target="#messages" class="card stack">
+  <input type="hidden" name="token" id="invite-token">
+  <label>Username
+    <input name="username" required maxlength="64" pattern="[A-Za-z0-9._\-]{1,64}" autocomplete="username" autocapitalize="none" spellcheck="false">
+  </label>
+  <label>Password <small>(at least 12 characters)</small>
+    <input name="password" type="password" required minlength="12" maxlength="1024" autocomplete="new-password">
+  </label>
+  <button type="submit" class="primary">Create account</button>
+</form>
+<p class="muted"><small>Your seeds, presets and Switches are your own: nobody else on this server can see them.
+  To play the same seed as a friend, share its permalink.</small></p>
+{% endblock %}

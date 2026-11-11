@@ -55,6 +55,55 @@
     </form>
   </div>
 </section>
+{% if user.admin %}
+<section class="card stack" id="accounts">
+  <h2>Accounts</h2>
+  <p class="muted">Invite friends to this server. Each account's seeds, presets and Switches
+    are its own; only you can invite or remove accounts.</p>
+  <ul class="seeds">
+    {% for a in accounts %}
+      <li class="row">
+        <span><strong>{{ a.username }}</strong>{% if a.role == "admin" %} <span class="badge ready">admin</span>{% endif %}<br>
+          <small class="muted">Joined {{ a.created_at[:10] }} · {{ a.seeds }} seed{{ "" if a.seeds == 1 else "s" }}</small></span>
+        {% if a.role != "admin" %}
+          <details>
+            <summary class="button danger">Remove</summary>
+            <form method="post" action="/account/members/{{ a.id }}/remove" hx-post="/account/members/{{ a.id }}/remove" hx-target="#messages" class="stack">
+              <p>This deletes <strong>{{ a.username }}</strong>'s account and everything in it: seeds, presets, Switches, passkeys and paired devices. It can't be undone.</p>
+              <label><span>Type <strong>{{ a.username }}</strong> to confirm</span>
+                <input name="confirm" required autocomplete="off" autocapitalize="none" spellcheck="false">
+              </label>
+              <button type="submit" class="danger">Remove {{ a.username }}</button>
+            </form>
+          </details>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+  {% if invites %}
+    <h3>Unused invites</h3>
+    <ul class="seeds">
+      {% for i in invites %}
+        <li class="row">
+          <span><strong>{{ i.note or "Invite" }}</strong><br>
+            <small class="muted">Created {{ i.created_at[:10] }} · works until {{ i.expires_at[:10] }}</small></span>
+          <form method="post" action="/account/invites/{{ i.id }}/revoke" hx-post="/account/invites/{{ i.id }}/revoke" hx-confirm="Revoke this invite? Its link stops working." class="inline">
+            <button type="submit" class="danger">Revoke</button>
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  <div id="invite">
+    <form method="post" action="/account/invites" hx-post="/account/invites" hx-target="#invite" hx-swap="innerHTML" class="stack">
+      <label>Who it's for <small>(optional, only you see it)</small>
+        <input name="note" maxlength="60" autocomplete="off" placeholder="e.g. Alex">
+      </label>
+      <button type="submit" class="primary">Create an invite link</button>
+    </form>
+  </div>
+</section>
+{% endif %}
 <section class="card stack">
   <p>Signed in as <strong>{{ user.username }}</strong>.</p>
   <form method="post" action="/logout" hx-post="/logout">
