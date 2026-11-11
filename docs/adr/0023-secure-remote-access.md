@@ -135,14 +135,64 @@ These refine the decisions above; where they differ, these apply.
 - **Limits:** 100 active Cloudflare certificates per zone is enough for the
   maintainer's devices and friends.
 
+## Implementation notes, 2026-11-11 (parts 1 and 2, #61 and #62)
+
+What the code does where it differs from, or adds to, the text above. Where they
+differ, these apply.
+
+- **The front door also has `/healthz`** (GET and HEAD), on port 8081 and, behind
+  a proxy, as an exempt path. Docker's health check and a proxy's need it once the
+  main port asks for a certificate. It answers `{"status": "ok"}` and nothing
+  else. `/api/v1/info` needs a certificate, as the amendment says.
+- **The server can see the client's certificate after all.** The amendment's
+  reason for port 8081 still holds (uvicorn alone doesn't pass the certificate
+  on), but a small wrapper around uvicorn's HTTP protocol (`connection.py`) now
+  puts the verified certificate and the connection's real address into each
+  request. The second port stays, so that a client without a certificate is
+  refused by TLS itself on 8080; the app additionally refuses a revoked or
+  unknown certificate on every request, so a revocation takes effect at once,
+  even on a connection opened before it.
+- **The main port asks for a certificate in three steps:** not at all until
+  "this server" is chosen (as before this feature); optionally once it's chosen
+  but still off, so the owner can check their browser's certificate first; and
+  required once it's on.
+- **Decision 6, the headers from a proxy:** `X-SSL-Client-SHA256` (hex, as
+  HAProxy writes `%[ssl_c_der,sha2(256),hex]`) or RFC 9440 `Client-Cert`
+  (`:base64 DER:`), instead of `X-SSL-Client-SHA1`: the server records SHA-256
+  fingerprints only. Read only from `DREADOVANIA_TRUSTED_PROXIES`.
+- **The proxy fingerprint check came in part 2,** not part 3, and is on by
+  default behind a proxy. With it off, the proxy alone checks, and turning secure
+  remote access on needs the owner to confirm they checked.
+- **Turning it on (decision 5):** when the server sees certificates (its own
+  check, or a proxy passing one on), the request turning it on must come with one
+  of the admin's own certificates. Otherwise the admin confirms.
+- **Cloudflare can be chosen but not turned on** until the Cloudflare issuer
+  exists (part 3): on most plans Cloudflare only accepts certificates from its own
+  CA, so built-in certificates wouldn't get through it.
+- **A locked-out owner** runs `python -m dreadovania remote-access off` on the
+  server. It is picked up within seconds.
+- **A browser certificate's `.p12` is downloaded once,** within 10 minutes, from
+  memory; the server never writes it to disk. The expiry banner's one-click
+  replacement keeps the old certificate working until the browser connects with
+  the new one, and then revokes the old one.
+- **Settings:** `DREADOVANIA_FRONT_DOOR_PORT` (8081, 0 turns it off; it listens
+  only when the server serves HTTPS), `DREADOVANIA_FRONT_DOOR_URL` (where devices
+  reach it when the port is remapped; invite links and the pairing address use
+  it while secure remote access is on), `DREADOVANIA_DEVICE_CERTIFICATE_DAYS`
+  (47) and `DREADOVANIA_BROWSER_CERTIFICATE_DAYS` (365).
+- **Until part 3:** while it's on, a friend who joins by invite gets an account
+  but no certificate yet, and a paired Switch can't connect until the app
+  presents one (part 4).
+
 ## Pull requests
 
 1. This ADR.
 2. Server: the built-in CA, certificates per device and browser, revocation,
-   rotation, the server's own TLS check with the front-door port, and the
-   settings page.
-3. Server: the Cloudflare and External issuers, and the fingerprint check
-   behind a proxy.
+   rotation, the server's own TLS check with the front-door port, the
+   fingerprint check behind a proxy, and the settings page. Done in two pull
+   requests: #61 (the CA and certificates) and #62 (the rest).
+3. Server: pairing and invites hand out certificates; the Cloudflare and
+   External issuers.
 4. App: certificates from pairing, stored per server, presented on every
    connection and renewed automatically; first, a hardware check against a
    Cloudflare-proxied server.
