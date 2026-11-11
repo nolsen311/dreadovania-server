@@ -14,6 +14,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from dreadovania import __version__, auth, problems, routes_api, routes_auth, ui
+from dreadovania.app_updates import AppUpdates
 from dreadovania.config import Settings
 from dreadovania.db import Database
 from dreadovania.jobs import JobQueue
@@ -78,6 +79,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.presets = PresetStore(db)
     app.state.seeds = SeedStore(db, settings.data_dir)
     app.state.switches = SwitchStore(db)
+    if app.state.app_updates is None:
+        app.state.app_updates = AppUpdates(settings.data_dir, enabled=settings.app_updates)
     uploads = RomfsUploads(
         settings.data_dir,
         app.state.romfs,
@@ -146,6 +149,7 @@ def create_app(
     settings: Settings | None = None,
     runner: Runner | None = None,
     romfs: RomfsInspector | None = None,
+    app_updates: AppUpdates | None = None,
 ) -> FastAPI:
     """Build the app. Tests pass a fake ``runner`` and ``romfs``; production leaves them unset."""
     app = FastAPI(
@@ -161,6 +165,7 @@ def create_app(
     app.state.settings = settings if settings is not None else Settings()
     app.state.runner = runner
     app.state.romfs = romfs
+    app.state.app_updates = app_updates
     app.state.login_limiter = auth.AttemptLimiter(**routes_auth.LOGIN_LIMIT)
     app.state.setup_limiter = auth.AttemptLimiter(**routes_auth.SETUP_LIMIT)
     app.state.passkey_start_limiter = auth.AttemptLimiter(**routes_auth.PASSKEY_START_LIMIT)

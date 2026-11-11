@@ -1,6 +1,71 @@
 {
   "components": {
     "schemas": {
+      "AppLatest": {
+        "properties": {
+          "available": {
+            "description": "Whether a verified release can be downloaded.",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "minimum_version": {
+            "description": "The oldest app version this server works with; older apps must update.",
+            "title": "Minimum Version",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why no release is available.",
+            "title": "Reason"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "available",
+          "minimum_version"
+        ],
+        "title": "AppLatest",
+        "type": "object"
+      },
       "ConnectionTest": {
         "properties": {
           "message": {
@@ -1552,6 +1617,46 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/app/dreadovania.nro": {
+      "get": {
+        "description": "The verified `.nro` from `/app/latest`.",
+        "operationId": "app_download_api_v1_app_dreadovania_nro_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {}
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "App Download",
+        "tags": [
+          "app"
+        ]
+      }
+    },
+    "/api/v1/app/latest": {
+      "get": {
+        "description": "The latest Switch app release this server has verified (its SHA-256 and its\nbuild-provenance attestation), and the oldest app version it works with.",
+        "operationId": "app_latest_api_v1_app_latest_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppLatest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "App Latest",
+        "tags": [
+          "app"
+        ]
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "operationId": "login_api_v1_auth_login_post",

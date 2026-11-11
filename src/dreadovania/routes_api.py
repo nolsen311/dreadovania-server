@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 
 from dreadovania import rdv_presets
+from dreadovania.app_updates import MINIMUM_APP_VERSION, UpdateProblem
 from dreadovania.jobs import CannotPatch, CannotSend, JobQueue, QueueFull
 from dreadovania.mods import ModError, iter_mod_tar, iter_mod_zip, mod_manifest, tar_size
 from dreadovania.presets import MAX_PRESET_BYTES, PresetInfo, PresetStore
@@ -837,6 +838,56 @@ def send_to_switch(seed_id: str, body: PushIn, request: Request, user: CurrentUs
     except QueueFull as exc:
         raise ApiProblem(429, "Too many jobs waiting", str(exc)) from None
     return Submitted(seed_id=sub.seed_id, job_id=sub.job_id)
+
+
+# ---- the Switch app (ADR 0021) --------------------------------------------------------------
+
+
+class AppLatest(BaseModel):
+    available: bool = Field(description="Whether a verified release can be downloaded.")
+    version: str | None = None
+    size: int | None = None
+    sha256: str | None = None
+    minimum_version: str = Field(
+        description="The oldest app version this server works with; older apps must update."
+    )
+    reason: str | None = Field(default=None, description="Why no release is available.")
+
+
+@router.get("/app/latest", tags=["app"])
+async def app_latest(request: Request, user: CurrentUser) -> AppLatest:
+    """The latest Switch app release this server has verified (its SHA-256 and its
+    build-provenance attestation), and the oldest app version it works with."""
+    del user
+    try:
+        release = await run_in_threadpool(request.app.state.app_updates.latest)
+    except UpdateProblem as exc:
+        return AppLatest(available=False, minimum_version=MINIMUM_APP_VERSION, reason=str(exc))
+    return AppLatest(
+        available=True, version=release.version, size=release.size, sha256=release.sha256,
+        minimum_version=MINIMUM_APP_VERSION,
+    )  # fmt: skip
+
+
+@router.get(
+    "/app/dreadovania.nro",
+    tags=["app"],
+    response_class=FileResponse,
+    responses={200: {"content": {"application/octet-stream": {}}}},
+)
+async def app_download(request: Request, user: CurrentUser) -> FileResponse:
+    """The verified `.nro` from `/app/latest`."""
+    del user
+    try:
+        release = await run_in_threadpool(request.app.state.app_updates.latest)
+    except UpdateProblem as exc:
+        raise ApiProblem(404, "No app release available", str(exc)) from None
+    return FileResponse(
+        release.path,
+        media_type="application/octet-stream",
+        filename="dreadovania.nro",
+        headers={"X-Content-SHA256": release.sha256, "Cache-Control": "no-store"},
+    )
 
 
 # ---- jobs ---------------------------------------------------------------------------------

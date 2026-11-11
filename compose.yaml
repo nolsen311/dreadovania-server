@@ -16,6 +16,9 @@ services:
       # DREADOVANIA_TLS_KEY_FILE: /certs/privkey.pem
       # Behind a reverse proxy: its address or network, so X-Forwarded-* is believed.
       # DREADOVANIA_TRUSTED_PROXIES: 172.18.0.0/16
+      # Offer paired Switches the latest verified app release (ADR 0021). The server
+      # then contacts GitHub at most every 6 hours while the app is in use.
+      # DREADOVANIA_APP_UPDATES: "off"
     volumes:
       # Seeds and server state. Must be writable by UID/GID 10001.
       - ./data:/data

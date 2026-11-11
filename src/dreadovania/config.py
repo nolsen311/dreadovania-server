@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     # Patching reads and rewrites several GB, so it gets longer (ADR 0013 §2).
     export_timeout_seconds: float = Field(default=1800, gt=0)
     max_queued_jobs_per_user: int = Field(default=5, ge=1)
+    # Offer paired Switches the latest verified app release (ADR 0021). Off: the
+    # server never contacts GitHub for it, and the app shows no updates.
+    app_updates: bool = True
 
     @property
     def romfs_path(self) -> Path:
