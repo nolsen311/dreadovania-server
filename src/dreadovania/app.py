@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from dreadovania import __version__, auth, problems, routes_api, routes_auth, ui
 from dreadovania.app_updates import AppUpdates
+from dreadovania.client_certs import ClientCertificates
 from dreadovania.config import Settings
 from dreadovania.db import Database
 from dreadovania.game_files import GameFiles, admin_id
@@ -80,6 +81,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.presets = PresetStore(db)
     app.state.seeds = SeedStore(db, settings.data_dir)
     app.state.switches = SwitchStore(db)
+    app.state.client_certs = ClientCertificates(db, settings.data_dir)
     if app.state.app_updates is None:
         app.state.app_updates = AppUpdates(settings.data_dir, enabled=settings.app_updates)
     uploads = RomfsUploads(

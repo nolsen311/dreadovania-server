@@ -7,12 +7,13 @@ are public on purpose: setup, login, and server info.
 
 from __future__ import annotations
 
+import base64
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, Field
 
-from dreadovania import accounts, auth, devices, passkeys
+from dreadovania import accounts, auth, client_certs, devices, passkeys
 from dreadovania.config import Settings
 from dreadovania.db import Database
 from dreadovania.problems import ApiProblem
@@ -653,3 +654,71 @@ def remove_account(account_id: str, request: Request, user: CurrentUser) -> None
         raise ApiProblem(409, "Account not removed", str(exc)) from None
     if removed is None:
         raise ApiProblem(404, "Account not found")
+
+
+# ---- client certificates for secure remote access (ADR 0023) ---------------------------------
+
+
+class CertificateOut(BaseModel):
+    id: str
+    kind: str = Field(description="`device` (a paired Switch) or `browser`.")
+    name: str
+    issuer: str
+    sha256: str = Field(description="The certificate's SHA-256 fingerprint, in hex.")
+    not_before: str
+    not_after: str
+    created_at: str
+    revoked_at: str | None
+    device_id: str | None
+
+
+class CertificateRequest(BaseModel):
+    name: str = Field(
+        default="", max_length=client_certs.MAX_NAME,
+        description="Which browser or phone it's for, so you can tell them apart.",
+    )  # fmt: skip
+
+
+class CertificateIssued(BaseModel):
+    """Install ``p12`` (base64) with ``password`` on the browser or phone. Both are shown
+    only now; the server keeps neither the private key nor the password."""
+
+    certificate: CertificateOut
+    p12: str = Field(description="The certificate and its private key, as base64 PKCS#12.")
+    password: str
+
+
+def _certs(request: Request) -> client_certs.ClientCertificates:
+    return request.app.state.client_certs
+
+
+@protected.get("/certificates", tags=["remote access"])
+def list_certificates(request: Request, user: CurrentUser) -> list[CertificateOut]:
+    """Your client certificates that haven't been revoked."""
+    _browser_only(user)
+    return [CertificateOut(**c) for c in _certs(request).list(user.user_id)]
+
+
+@protected.post("/certificates", status_code=status.HTTP_201_CREATED, tags=["remote access"])
+def create_certificate(
+    body: CertificateRequest, request: Request, user: CurrentUser
+) -> CertificateIssued:
+    """A client certificate for a browser or phone, valid for a year."""
+    _browser_only(user)
+    issued = _certs(request).issue(user.user_id, "browser", body.name)
+    return CertificateIssued(
+        certificate=CertificateOut(**issued.certificate),
+        p12=base64.b64encode(issued.p12).decode("ascii"),
+        password=issued.password,
+    )
+
+
+@protected.delete(
+    "/certificates/{certificate_id}", status_code=status.HTTP_204_NO_CONTENT,
+    tags=["remote access"],
+)  # fmt: skip
+def revoke_certificate(certificate_id: str, request: Request, user: CurrentUser) -> None:
+    """Revoke one of your certificates: it stops working once the revocation list reloads."""
+    _browser_only(user)
+    if not _certs(request).revoke(user.user_id, certificate_id):
+        raise ApiProblem(404, "Certificate not found")
