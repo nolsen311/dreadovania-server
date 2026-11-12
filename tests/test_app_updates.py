@@ -8,6 +8,10 @@ with Sigstore's built-in trust root, so it needs no network either.
 
 import hashlib
 import json
+import os
+import re
+import subprocess
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -82,6 +86,37 @@ def test_a_signature_for_another_tag_or_file_is_refused() -> None:
         verify_attestation(bundle, V040_SHA256, "v0.4.0", repo="someone/else")
     with pytest.raises(UpdateProblem):
         verify_attestation("{}", V040_SHA256, "v0.4.0")
+
+
+def _image_xdg_dirs(root: Path) -> dict[str, str]:
+    """The Dockerfile's XDG_* settings, with /tmp moved under ``root``."""
+    dockerfile = (Path(__file__).parent.parent / "Dockerfile").read_text()
+    found = dict(re.findall(r"(XDG_[A-Z_]+)=(\S+)", dockerfile))
+    assert set(found) == {"XDG_CACHE_HOME", "XDG_DATA_HOME"}
+    tmp = "/tmp/"  # noqa: S108 (the image's tmpfs, moved under root here)
+    return {k: str(root / v.removeprefix(tmp)) for k, v in found.items()}
+
+
+def _verify_in_a_fresh_process(env_extra: dict[str, str]) -> subprocess.CompletedProcess:
+    code = (
+        "from pathlib import Path; from dreadovania.app_updates import verify_attestation;"
+        f"verify_attestation(Path({str(DATA / 'nx-v0.4.0-attestation.json')!r}).read_text(),"
+        f" {V040_SHA256!r}, 'v0.4.0')"
+    )
+    env = {k: v for k, v in os.environ.items() if not k.startswith("XDG_")}
+    # The image's user has no usable home directory; /dev/null can't hold one even for root.
+    env |= {"HOME": "/dev/null", **env_extra}
+    return subprocess.run(
+        [sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=120
+    )
+
+
+def test_the_check_works_without_a_home_directory(tmp_path: Path) -> None:
+    """As in the container: HOME is unusable, and the Dockerfile's XDG_* dirs are used."""
+    without = _verify_in_a_fresh_process({})
+    assert without.returncode != 0 and "/dev/null" in without.stderr  # the bug this guards
+    done = _verify_in_a_fresh_process(_image_xdg_dirs(tmp_path))
+    assert done.returncode == 0, done.stderr
 
 
 # ---- finding, checking and caching a release ----------------------------------------------------
