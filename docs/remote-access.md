@@ -110,8 +110,9 @@ backend dreadovania
 ```
 
 On the server, set `DREADOVANIA_TRUSTED_PROXIES` to the proxy's address or network
-(for example `172.18.0.0/16`). The server only believes the fingerprint header from
-those addresses, and with **Also check the certificate it passes on** ticked (the
+(for example `172.18.0.0/16`). Separate several with commas, as in
+`192.0.2.10,172.18.0.0/16`, not as a list. The server only believes the
+fingerprint header from those addresses, and with **Also check the certificate it passes on** ticked (the
 default), it refuses certificates it didn't issue or has revoked, even if the proxy
 lets them through.
 
@@ -191,11 +192,40 @@ certificates from its own CA, so the server asks Cloudflare to sign them.
    the Account page revokes it at Cloudflare too. While Cloudflare checks, a
    certificate that isn't one of the zone's is refused, since Cloudflare wouldn't let
    it in.
-6. **In the server**, under **Account → Secure remote access**: choose **Cloudflare**.
+6. **Decide whether the server checks too.** Cloudflare ends TLS, so the client's
+   certificate stops at Cloudflare: the server only knows which one was used if
+   it's passed on in a header. Under **Account → Secure remote access**, the box
+   **Behind a proxy or Cloudflare, also check the certificate it passes on** sets
+   which of these you use:
+   - **Cloudflare checks alone** (untick the box). Simplest: the WAF rule (step 3)
+     refuses requests without a valid, unrevoked certificate, and Authenticated
+     Origin Pulls (step 4) keep anyone from going around Cloudflare. The settings
+     page then can't see your browser's certificate, so it asks you to confirm that
+     you checked it yourself before turning on.
+   - **The server checks as well** (leave it ticked). Cloudflare has to pass each
+     certificate's fingerprint on. Under **Rules → Transform Rules → Modify Request
+     Header**, create two rules, in this order:
+     1. For all incoming requests: **Remove** the header `X-SSL-Client-SHA256`, so
+        a client can't send its own.
+     2. When `cf.tls_client_auth.cert_verified and not cf.tls_client_auth.cert_revoked`:
+        **Set dynamic** `X-SSL-Client-SHA256` to
+        `cf.tls_client_auth.cert_fingerprint_sha256`.
+
+     Also set `DREADOVANIA_TRUSTED_PROXIES` to the address the server sees
+     Cloudflare's requests come from: your reverse proxy's, or `cloudflared`'s with
+     a tunnel. If a reverse proxy sits between Cloudflare and the server, it must
+     pass the header on unchanged. Don't use section 2's `set-header … ssl_c_der`
+     lines on the address Cloudflare connects to: with Authenticated Origin Pulls,
+     the certificate there is Cloudflare's own, so they would replace your
+     browser's fingerprint with Cloudflare's. The settings page says whether a
+     request carried the header.
+7. **In the server**, under **Account → Secure remote access**: choose **Cloudflare**.
    From then on new certificates come from Cloudflare. Certificates from the
    server's own CA don't get through Cloudflare, so add a new one for each browser
-   and phone, and let each Switch renew (the app does it the next time it connects).
-   Then turn it on.
+   and phone. Let each Switch renew before you turn it on: open the app once on
+   each, and it fetches a Cloudflare certificate by itself. A Switch that missed
+   this can't renew through Cloudflare afterwards; pair it again instead (pairing
+   always works). Then turn it on.
 
 The dashboard's menu names change from time to time; if one isn't where this says,
 search Cloudflare's docs for "mTLS" and "Authenticated Origin Pulls".
