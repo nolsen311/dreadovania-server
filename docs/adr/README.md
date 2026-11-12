@@ -30,3 +30,4 @@ supersedes the old one; don't rewrite history.
 | [0022](0022-check-for-app-updates-now.md) | The Switch app can ask for an app update check now | Proposed |
 | [0023](0023-secure-remote-access.md) | Secure remote access with client certificates | Proposed |
 | [0024](0024-signoff-stacked-pull-requests.md) | `/signoff` for stacked pull requests | Proposed |
+| [0025](0025-cosmetic-options.md) | Randovania's Dread cosmetic options, including separate save slots | Proposed |

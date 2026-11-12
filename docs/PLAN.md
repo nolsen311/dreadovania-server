@@ -198,9 +198,10 @@ Resolved since:
 Still open:
 
 1. How cleanly SimpleModManager's core logic separates from its UI (Phase 4).
-2. How Dread save slots behave across different seeds. Randovania has a
-   "separate save slots" cosmetic option for Dread, to expose with the other
-   cosmetics (ADR 0016, "Later").
+2. ~~How Dread save slots behave across different seeds~~: with Randovania's
+   "separate save slots" option, each seed keeps its own slots inside Dread's save
+   data. Dreadovania turns it on by default, with the other cosmetic options
+   (ADR 0025).
 
 ## Later ideas (not scheduled)
 
