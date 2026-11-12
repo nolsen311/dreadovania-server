@@ -47,7 +47,9 @@ SECURITY_HEADERS = {
         "object-src 'none'"
     ),
     "Cross-Origin-Opener-Policy": "same-origin",
-    "Referrer-Policy": "no-referrer",
+    # Not "no-referrer": with it, browsers send "Origin: null" on a plain form POST,
+    # which check_origin refuses. "same-origin" still sends nothing to other sites.
+    "Referrer-Policy": "same-origin",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",

@@ -101,7 +101,7 @@
         yourself.</small></p>
       <label>File <input type="file" name="file" required accept=".pem,.crt,.cer,.der,.p12,.pfx"></label>
       <label>Password <small>(only for a .p12)</small>
-        <input type="password" name="password" autocomplete="off"></label>
+        <input type="password" name="password" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other"></label>
       <label>Name <input name="name" maxlength="60" autocomplete="off" placeholder="e.g. My phone"></label>
       {% if devices %}
       <label>For <select name="device_id">

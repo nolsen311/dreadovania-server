@@ -5,6 +5,7 @@ The "Switch" here is a local FTP server (pyftpdlib) serving a temporary folder
 laid out like an SD card. No console is involved.
 """
 
+import re
 import socket
 from collections.abc import Iterator
 from pathlib import Path
@@ -277,3 +278,15 @@ def test_switches_page(client: TestClient, ftpd: dict) -> None:
         "/switches", data={**form, "host": "8.8.8.8"}, headers={**H, "HX-Request": "true"}
     )
     assert "local-network" in bad.text
+
+
+def test_the_add_a_switch_form_opts_out_of_autofill(client: TestClient) -> None:
+    # Password managers took it for a login form and put a username in the port.
+    page = client.get("/switches").text
+    form = page[page.index("Add a Switch") : page.index("</form>", page.index("Add a Switch"))]
+    inputs = re.findall(r"<input[^>]*>", form)
+    assert len(inputs) == 5
+    for tag in inputs:
+        assert 'autocomplete="off"' in tag or 'autocomplete="new-password"' in tag, tag
+        assert "data-1p-ignore" in tag and 'data-lpignore="true"' in tag, tag
+    assert 'autocomplete="username"' not in form and "current-password" not in form

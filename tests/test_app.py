@@ -25,6 +25,12 @@ def test_security_headers_on_every_response() -> None:
             assert response.headers[name] == value, (path, name)
 
 
+def test_referrer_policy_keeps_the_origin_on_form_posts() -> None:
+    # "no-referrer" makes browsers send "Origin: null" on a plain form POST, which
+    # the CSRF check refuses (saving cosmetics did).
+    assert SECURITY_HEADERS["Referrer-Policy"] == "same-origin"
+
+
 def test_openapi_served_but_docs_ui_disabled() -> None:
     assert client.get("/api/v1/openapi.json").status_code == 200
     assert client.get("/docs").status_code == 404

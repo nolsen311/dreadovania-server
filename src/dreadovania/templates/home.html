@@ -48,8 +48,10 @@
 <details class="card">
   <summary>Clean up seeds</summary>
   <form hx-post="/seeds/purge/preview" hx-target="#purge-confirm" class="stack">
-    <label class="check"><input type="radio" name="scope" value="older_than" checked> Older than
-      <input name="days" type="number" min="1" max="3650" value="30" inputmode="numeric" class="short"> days</label>
+    <label class="check"><input type="radio" name="scope" value="older_than" checked>
+      <span class="nowrap">Older than</span>
+      <input name="days" type="number" min="1" max="3650" value="30" inputmode="numeric" class="short" aria-label="Days">
+      days</label>
     <label class="check"><input type="radio" name="scope" value="all"> All seeds</label>
     <button type="submit">Check what would be deleted</button>
   </form>

@@ -41,7 +41,7 @@ input, select, button, .button {
 input:not([type=checkbox]):not([type=radio]), select {
   width: 100%; padding: .5rem .75rem; border: 1px solid var(--line); background: var(--bg); color: var(--fg);
 }
-input.short { width: 6rem; display: inline-block; }
+input.short:not([type=checkbox]):not([type=radio]) { width: 6rem; display: inline-block; }
 input[type=checkbox], input[type=radio] { width: 1.3rem; height: 1.3rem; min-height: 0; accent-color: var(--accent); }
 button, .button {
   display: inline-flex; align-items: center; justify-content: center; padding: .5rem 1rem;
@@ -109,6 +109,7 @@ textarea { width: 100%; font: inherit; padding: .5rem; border: 1px solid var(--l
 .warnings ul { margin: .25rem 0 0; padding-left: 1.1rem; }
 .actions { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 .lines { white-space: pre-line; }
+.nowrap { white-space: nowrap; }
 label.check input { flex: none; }
 .pickup + .pickup { border-top: 1px solid var(--line); padding-top: .6rem; }
 details.custom > summary { min-height: 36px; font-weight: 400; font-size: .9rem; }
