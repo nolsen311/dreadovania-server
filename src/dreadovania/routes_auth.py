@@ -621,6 +621,27 @@ def renew_device_certificate(request: Request, user: CurrentUser) -> DeviceCerti
     return _device_certificate(request, issued)
 
 
+@protected.post("/devices/me/certificate", tags=["devices"])
+def renew_device_certificate(request: Request, user: CurrentUser) -> DeviceCertificate:
+    """A new client certificate for this Switch (ADR 0023). Called by the app once
+    ``renew_after`` has passed, or to get a first one if it was paired before them.
+    The current certificate keeps working until the app connects with the new one;
+    it is then revoked."""
+    if user.device_id is None:  # pragma: no cover - only device tokens reach this route
+        raise ApiProblem(403, "Devices only", "this is for the Switch app")
+    certs = _certs(request)
+    current = certs.current_for_device(user.user_id, user.device_id)
+    if current is None:
+        name = next(
+            (d["name"] for d in devices.list_devices(_db(request), user.user_id)
+             if d["id"] == user.device_id), "Switch",
+        )  # fmt: skip
+        issued = certs.issue(user.user_id, "device", name, device_id=user.device_id)
+    else:
+        issued = certs.renew(user.user_id, current["id"])
+    return _device_certificate(request, issued)
+
+
 @protected.delete("/devices/me", status_code=status.HTTP_204_NO_CONTENT, tags=["devices"])
 def unpair_self(request: Request, user: CurrentUser) -> None:
     """Unpair the device making this request; its token stops working."""
