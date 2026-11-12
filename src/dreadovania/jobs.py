@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from dreadovania import switches, validation
+from dreadovania.cosmetics import Cosmetics, CosmeticsStore, recorded
 from dreadovania.db import Database, row_to_dict, utc_now
 from dreadovania.mods import ModError, finalize_mod
 from dreadovania.presets import PresetStore, bundled_dread_presets, is_user_preset
@@ -77,6 +78,7 @@ class JobQueue:
         self.db = db
         self.runner = runner
         self.presets = PresetStore(db)
+        self.cosmetics = CosmeticsStore(db)
         self.seeds_dir = data_dir / "seeds"
         self.work_dir = data_dir / "work"
         self.randovania_version = randovania_version
@@ -156,6 +158,7 @@ class JobQueue:
         if not game_files.ready:
             raise CannotPatch(f"the game files aren't ready: {game_files.message}")
         job_id, now = new_id(), utc_now()
+        cosmetics = self.cosmetics.get(owner_id)  # as they are now, for the whole job
         with self.db.transaction() as conn:
             seed = conn.execute(
                 "SELECT status FROM seeds WHERE id = ? AND owner_id = ?", (seed_id, owner_id)
@@ -164,25 +167,29 @@ class JobQueue:
                 raise LookupError(seed_id)
             if seed["status"] != "ready":
                 raise CannotPatch("only a generated seed can be patched")
-            mod = conn.execute("SELECT status FROM mods WHERE seed_id = ?", (seed_id,)).fetchone()
+            mod = conn.execute(
+                "SELECT status, cosmetics FROM mods WHERE seed_id = ?", (seed_id,)
+            ).fetchone()
             if mod is not None and mod["status"] == "pending":
                 raise CannotPatch("this seed is already being patched")
-            if mod is not None and mod["status"] == "ready":
-                raise CannotPatch("this seed is already patched")
+            # Patching again is for new cosmetic options (ADR 0025, decision 6).
+            ready = mod is not None and mod["status"] == "ready"
+            if ready and recorded(mod["cosmetics"]) == cosmetics:
+                raise CannotPatch("this seed is already patched with your cosmetic options")
             self._check_queue_room(conn, owner_id)
             conn.execute(
                 "INSERT INTO mods (seed_id, owner_id, status, randovania_version, created_at)"
                 " VALUES (?, ?, 'pending', ?, ?)"
                 " ON CONFLICT (seed_id) DO UPDATE SET status = 'pending',"
-                " game_version = NULL, file_count = NULL, size_bytes = NULL,"
+                " game_version = NULL, file_count = NULL, size_bytes = NULL, cosmetics = NULL,"
                 " randovania_version = excluded.randovania_version,"
                 " created_at = excluded.created_at, completed_at = NULL",
                 (seed_id, owner_id, self.randovania_version, now),
             )
             conn.execute(
-                "INSERT INTO jobs (id, owner_id, seed_id, kind, status, created_at)"
-                " VALUES (?, ?, ?, 'export', 'queued', ?)",
-                (job_id, owner_id, seed_id, now),
+                "INSERT INTO jobs (id, owner_id, seed_id, kind, status, params, created_at)"
+                " VALUES (?, ?, ?, 'export', 'queued', ?, ?)",
+                (job_id, owner_id, seed_id, json.dumps({"cosmetics": cosmetics.model_dump()}), now),
             )
         self._notify_from_any_thread()
         return Submitted(seed_id=seed_id, job_id=job_id)
@@ -457,16 +464,24 @@ class JobQueue:
         rdvgame = self._seed_dir(job) / "seed.rdvgame"
         if not rdvgame.is_file():
             raise RunnerError("the seed file is missing")
+        params = json.loads(job["params"] or "{}")
+        cosmetics = (
+            Cosmetics.model_validate(params["cosmetics"]) if "cosmetics" in params
+            else self.cosmetics.get(job["owner_id"])  # queued before ADR 0025
+        )  # fmt: skip
         result = await self.runner.export(
-            ExportRequest(rdvgame=rdvgame, romfs=romfs.root), workdir, on_progress
+            ExportRequest(rdvgame=rdvgame, romfs=romfs.root, cosmetics=cosmetics.for_randovania()),
+            workdir,
+            on_progress,
         )
         on_progress("Checking the patched files")
         info = await asyncio.to_thread(finalize_mod, result.mod, self._seed_dir(job) / "mod")
         return (
             "UPDATE mods SET status = 'ready', game_version = ?, file_count = ?,"
-            " size_bytes = ?, completed_at = ? WHERE seed_id = ?",
-            (game_files.version, info.file_count, info.size_bytes, utc_now(), job["seed_id"]),
-        )
+            " size_bytes = ?, cosmetics = ?, completed_at = ? WHERE seed_id = ?",
+            (game_files.version, info.file_count, info.size_bytes, cosmetics.model_dump_json(),
+             utc_now(), job["seed_id"]),
+        )  # fmt: skip
 
     async def _push(self, job: dict[str, Any], workdir: Path, on_progress: Any) -> _Update:
         """Send a patched seed to a Switch over FTP, in a worker thread (ADR 0016)."""

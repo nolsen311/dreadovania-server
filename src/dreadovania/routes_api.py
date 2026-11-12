@@ -19,6 +19,7 @@ from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 
 from dreadovania import auth, rdv_presets
 from dreadovania.app_updates import MINIMUM_APP_VERSION, UpdateProblem
+from dreadovania.cosmetics import Cosmetics, recorded
 from dreadovania.game_files import GameFiles
 from dreadovania.jobs import CannotPatch, CannotSend, JobQueue, QueueFull
 from dreadovania.mods import ModError, iter_mod_tar, iter_mod_zip, mod_manifest, tar_size
@@ -91,12 +92,26 @@ class ModOut(BaseModel):
     created_at: str
     completed_at: str | None
     job_id: str | None
+    cosmetics: Cosmetics | None = Field(
+        default=None,
+        description="The cosmetic options it was patched with, once ready (ADR 0025).",
+    )
+    cosmetics_current: bool | None = Field(
+        default=None,
+        description="Whether those are your current cosmetic options. If not, patching the"
+        " seed again (`POST /seeds/{seed_id}/mod`) applies the current ones.",
+    )
 
     @classmethod
-    def of(cls, row: dict[str, Any]) -> ModOut | None:
+    def of(cls, row: dict[str, Any], current: Cosmetics | None = None) -> ModOut | None:
         if row.get("mod_status") is None:
             return None
-        return cls(**{name: row[f"mod_{name}"] for name in cls.model_fields})
+        extra = ("cosmetics", "cosmetics_current")
+        mod = cls(**{name: row[f"mod_{name}"] for name in cls.model_fields if name not in extra})
+        if row["mod_status"] == "ready":
+            mod.cosmetics = recorded(row.get("mod_cosmetics"))
+            mod.cosmetics_current = None if current is None else mod.cosmetics == current
+        return mod
 
 
 class SeedOut(BaseModel):
@@ -120,10 +135,10 @@ class SeedOut(BaseModel):
     )
 
     @classmethod
-    def of(cls, row: dict[str, Any]) -> SeedOut:
+    def of(cls, row: dict[str, Any], cosmetics: Cosmetics | None = None) -> SeedOut:
         return cls(
             **{**row, "preset_id": row["preset_key"], "race": bool(row["race"])},
-            mod=ModOut.of(row),
+            mod=ModOut.of(row, cosmetics),
         )
 
 
@@ -500,7 +515,8 @@ def generate_seed(body: GenerateIn, request: Request, user: CurrentUser) -> Subm
 @router.get("/seeds", tags=["seeds"])
 def list_seeds(request: Request, user: CurrentUser, limit: int = 50) -> list[SeedOut]:
     """Newest first."""
-    return [SeedOut.of(r) for r in _seeds(request).list(user.user_id, limit)]
+    cosmetics = _jobs(request).cosmetics.get(user.user_id)
+    return [SeedOut.of(r, cosmetics) for r in _seeds(request).list(user.user_id, limit)]
 
 
 @router.post("/seeds/purge", tags=["seeds"])
@@ -520,7 +536,7 @@ def get_seed(seed_id: str, request: Request, user: CurrentUser) -> SeedOut:
     seed = _seeds(request).get(user.user_id, seed_id)
     if seed is None:
         raise _not_found("Seed")
-    return SeedOut.of(seed)
+    return SeedOut.of(seed, _jobs(request).cosmetics.get(user.user_id))
 
 
 @router.get(
@@ -569,9 +585,28 @@ def delete_seed(seed_id: str, request: Request, user: CurrentUser) -> None:
 # ---- patching (ADR 0013) --------------------------------------------------------------------
 
 
+@router.get("/cosmetics", tags=["patching"])
+def get_cosmetics(request: Request, user: CurrentUser) -> Cosmetics:
+    """Your cosmetic options, used whenever you patch a seed (ADR 0025).
+
+    They change how a patched seed looks and behaves, not where items are, so
+    they're not part of the seed or its permalink.
+    """
+    return _jobs(request).cosmetics.get(user.user_id)
+
+
+@router.put("/cosmetics", tags=["patching"])
+def put_cosmetics(options: Cosmetics, request: Request, user: CurrentUser) -> Cosmetics:
+    """Replace your cosmetic options. Seeds patched before keep theirs until patched again."""
+    return _jobs(request).cosmetics.set(user.user_id, options)
+
+
 @router.post("/seeds/{seed_id}/mod", status_code=status.HTTP_202_ACCEPTED, tags=["patching"])
 def patch_seed(seed_id: str, request: Request, user: CurrentUser) -> Submitted:
-    """Patch a generated seed with your game files. Follow the job for progress.
+    """Patch a generated seed with your game files and cosmetic options. Follow the job.
+
+    A patched seed can be patched again only when your cosmetic options have changed
+    since (its mod's `cosmetics_current` is false); otherwise this is a 409.
 
     Needs ready game files (see `GET /romfs`). Race seeds can be patched: patching
     doesn't reveal the spoiler.
