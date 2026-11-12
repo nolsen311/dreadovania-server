@@ -434,6 +434,112 @@
         "title": "DeviceOut",
         "type": "object"
       },
+      "ExternalCA": {
+        "properties": {
+          "certificate": {
+            "description": "Your CA's certificate, PEM.",
+            "maxLength": 98304,
+            "title": "Certificate",
+            "type": "string"
+          }
+        },
+        "required": [
+          "certificate"
+        ],
+        "title": "ExternalCA",
+        "type": "object"
+      },
+      "ExternalCAOut": {
+        "properties": {
+          "not_after": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not After"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          }
+        },
+        "required": [
+          "subject",
+          "sha256",
+          "not_after"
+        ],
+        "title": "ExternalCAOut",
+        "type": "object"
+      },
+      "ExternalCertificateUpload": {
+        "description": "A certificate from your own CA: the certificate alone (PEM or DER), or a .p12 with\nits password. Only the certificate's fingerprint and dates are kept; a .p12's\nprivate key and password are used in memory and dropped at once.",
+        "properties": {
+          "certificate": {
+            "description": "The file, base64 (or PEM text for a certificate).",
+            "maxLength": 98304,
+            "title": "Certificate",
+            "type": "string"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "One of your paired Switches, if it's for one; else a browser.",
+            "title": "Device Id"
+          },
+          "name": {
+            "default": "",
+            "maxLength": 60,
+            "title": "Name",
+            "type": "string"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a .p12.",
+            "title": "Password"
+          }
+        },
+        "required": [
+          "certificate"
+        ],
+        "title": "ExternalCertificateUpload",
+        "type": "object"
+      },
       "GenerateIn": {
         "properties": {
           "permalink": {
@@ -2597,6 +2703,48 @@
         ]
       }
     },
+    "/api/v1/certificates/external": {
+      "post": {
+        "description": "Record a certificate from your own CA, for when a proxy checks against that CA.\nInstall it on the browser, phone or Switch yourself; the server only checks it.",
+        "operationId": "add_external_certificate_api_v1_certificates_external_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExternalCertificateUpload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add External Certificate",
+        "tags": [
+          "remote access"
+        ]
+      }
+    },
     "/api/v1/certificates/presented": {
       "get": {
         "description": "The certificate this browser connected with, and whether it expires soon.",
@@ -3583,6 +3731,81 @@
           }
         },
         "summary": "Get Client Crl",
+        "tags": [
+          "remote access"
+        ]
+      }
+    },
+    "/api/v1/remote-access/external-ca": {
+      "delete": {
+        "description": "Forget your own CA: uploads are then accepted from any CA.",
+        "operationId": "delete_external_ca_api_v1_remote_access_external_ca_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Delete External Ca",
+        "tags": [
+          "remote access"
+        ]
+      },
+      "get": {
+        "description": "Your own CA, if you've given it: uploaded certificates must be issued by it.",
+        "operationId": "get_external_ca_api_v1_remote_access_external_ca_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalCAOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get External Ca",
+        "tags": [
+          "remote access"
+        ]
+      },
+      "put": {
+        "description": "Set your own CA. Certificates uploaded from then on must be issued by it.",
+        "operationId": "put_external_ca_api_v1_remote_access_external_ca_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExternalCA"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalCAOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put External Ca",
         "tags": [
           "remote access"
         ]

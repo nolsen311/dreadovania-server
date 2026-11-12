@@ -60,13 +60,14 @@
   <p class="muted">A certificate lets this browser or phone reach the server when its owner
     has turned on secure remote access.{% if presented %} This browser is using
     <strong>{{ presented.name }}</strong>.{% endif %}</p>
-  {% set browsers = certificates | selectattr("kind", "equalto", "browser") | list %}
+  {% set browsers = certificates | selectattr("kind", "equalto", "browser") | list
+     + certificates | selectattr("issuer", "equalto", "external") | selectattr("kind", "equalto", "device") | list %}
   {% if browsers %}
     <ul class="seeds">
       {% for c in browsers %}
         <li class="row">
           <span><strong>{{ c.name }}</strong>{% if presented and presented.id == c.id %} <span class="badge ready">this browser</span>{% endif %}<br>
-            <small class="muted">Added {{ c.created_at[:10] }} · works until {{ c.not_after[:10] }}</small></span>
+            <small class="muted">{% if c.kind == "device" %}Switch · {% endif %}{% if c.issuer == "external" %}from your own CA · {% elif c.issuer == "cloudflare" %}from Cloudflare · {% endif %}Added {{ c.created_at[:10] }} · works until {{ c.not_after[:10] }}</small></span>
           <form method="post" action="/account/certificates/{{ c.id }}/revoke" hx-post="/account/certificates/{{ c.id }}/revoke" hx-confirm="Revoke &quot;{{ c.name }}&quot;? The browser or phone it's installed on stops getting through." class="inline">
             <button type="submit" class="danger">Revoke</button>
           </form>
@@ -82,6 +83,27 @@
       <button type="submit" class="primary">Add a certificate for this browser or phone</button>
     </form>
   </div>
+  <details>
+    <summary>Add a certificate from your own CA</summary>
+    <form id="external-certificate" class="stack">
+      <p class="muted"><small>For when a proxy checks against your own CA. Give the certificate
+        on its own (.pem, .crt or .cer), or a .p12 with its password: the server keeps only the
+        certificate's fingerprint and dates. A .p12's private key and password are used once, in
+        memory, and never stored. Install the certificate on the browser, phone or Switch
+        yourself.</small></p>
+      <label>File <input type="file" name="file" required accept=".pem,.crt,.cer,.der,.p12,.pfx"></label>
+      <label>Password <small>(only for a .p12)</small>
+        <input type="password" name="password" autocomplete="off"></label>
+      <label>Name <input name="name" maxlength="60" autocomplete="off" placeholder="e.g. My phone"></label>
+      {% if devices %}
+      <label>For <select name="device_id">
+        <option value="">A browser or phone</option>
+        {% for d in devices %}<option value="{{ d.id }}">The Switch “{{ d.name }}”</option>{% endfor %}
+      </select></label>
+      {% endif %}
+      <button type="submit">Add it</button>
+    </form>
+  </details>
 </section>
 {% if user.admin %}
 <section class="card stack">

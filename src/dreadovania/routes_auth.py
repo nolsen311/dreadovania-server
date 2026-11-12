@@ -592,10 +592,15 @@ def current_device(request: Request, user: CurrentUser) -> DeviceMe:
     cert = certs.current_for_device(user.user_id, user.device_id)
     status_ = None
     if cert is not None:
-        stale = cert["issuer"] != certs.current_issuer()
+        if cert["issuer"] == "external":
+            renew_after = cert["not_after"]  # renewed by the owner's CA, never by the server
+        elif cert["issuer"] != certs.current_issuer():
+            renew_after = utc_now()  # switched issuer: get one from the new one now
+        else:
+            renew_after = certs.renew_after(cert)
         status_ = DeviceCertificateStatus(
             sha256=cert["sha256"], issuer=cert["issuer"], not_after=cert["not_after"],
-            renew_after=utc_now() if stale else certs.renew_after(cert),
+            renew_after=renew_after,
         )  # fmt: skip
     return DeviceMe(**found, certificate=status_)
 
@@ -610,6 +615,11 @@ def renew_device_certificate(request: Request, user: CurrentUser) -> DeviceCerti
         raise ApiProblem(403, "Devices only", "this is for the Switch app")
     certs = _certs(request)
     current = certs.current_for_device(user.user_id, user.device_id)
+    if current is not None and current["issuer"] == "external":
+        raise ApiProblem(
+            409, "Renewed by your own CA",
+            "this Switch's certificate is from your own CA: renew it there",
+        )  # fmt: skip
     if current is None:
         name = next(
             (d["name"] for d in devices.list_devices(_db(request), user.user_id)
@@ -1036,3 +1046,102 @@ def get_presented_certificate(request: Request, user: CurrentUser) -> PresentedC
         if cert and cert["kind"] == "browser"
         else None,
     )
+
+
+# ---- the External issuer: certificates from the owner's own CA (ADR 0023) -----------------
+
+
+class ExternalCertificateUpload(BaseModel):
+    """A certificate from your own CA: the certificate alone (PEM or DER), or a .p12 with
+    its password. Only the certificate's fingerprint and dates are kept; a .p12's
+    private key and password are used in memory and dropped at once."""
+
+    certificate: str = Field(
+        max_length=96 * 1024, description="The file, base64 (or PEM text for a certificate)."
+    )
+    password: str | None = Field(default=None, max_length=1024, description="For a .p12.")
+    name: str = Field(default="", max_length=client_certs.MAX_NAME)
+    device_id: str | None = Field(
+        default=None, description="One of your paired Switches, if it's for one; else a browser."
+    )
+
+
+class ExternalCA(BaseModel):
+    certificate: str = Field(max_length=96 * 1024, description="Your CA's certificate, PEM.")
+
+
+class ExternalCAOut(BaseModel):
+    subject: str | None
+    sha256: str | None
+    not_after: str | None
+
+
+def _upload_bytes(text: str) -> bytes:
+    text = text.strip()
+    if text.startswith("-----BEGIN"):
+        return text.encode()
+    try:
+        return base64.b64decode(text, validate=True)
+    except ValueError:
+        raise ApiProblem(400, "Not a certificate", "send the file as base64, or PEM text") from None
+
+
+@protected.post(
+    "/certificates/external", status_code=status.HTTP_201_CREATED, tags=["remote access"]
+)
+def add_external_certificate(
+    body: ExternalCertificateUpload, request: Request, user: CurrentUser
+) -> CertificateOut:
+    """Record a certificate from your own CA, for when a proxy checks against that CA.
+    Install it on the browser, phone or Switch yourself; the server only checks it."""
+    _browser_only(user)
+    if (
+        body.device_id is not None
+        and devices.get_device(_db(request), user.user_id, body.device_id) is None
+    ):
+        raise ApiProblem(404, "Device not found", "that isn't one of your paired Switches")
+    try:
+        cert = _certs(request).record_external(
+            user.user_id, _upload_bytes(body.certificate), body.password, body.name,
+            device_id=body.device_id,
+        )  # fmt: skip
+    except client_certs.CertificateError as exc:
+        raise ApiProblem(400, "Certificate not added", str(exc)) from None
+    return CertificateOut(**cert)
+
+
+def _ca_out(ca: Any) -> ExternalCAOut:
+    if ca is None:
+        return ExternalCAOut(subject=None, sha256=None, not_after=None)
+    from cryptography.hazmat.primitives import hashes
+
+    return ExternalCAOut(
+        subject=ca.subject.rfc4514_string(), sha256=ca.fingerprint(hashes.SHA256()).hex(),
+        not_after=ca.not_valid_after_utc.isoformat(),
+    )  # fmt: skip
+
+
+@protected.get("/remote-access/external-ca", tags=["remote access"])
+def get_external_ca(request: Request, user: CurrentUser) -> ExternalCAOut:
+    """Your own CA, if you've given it: uploaded certificates must be issued by it."""
+    require_admin(user)
+    return _ca_out(_certs(request).external_ca())
+
+
+@protected.put("/remote-access/external-ca", tags=["remote access"])
+def put_external_ca(body: ExternalCA, request: Request, user: CurrentUser) -> ExternalCAOut:
+    """Set your own CA. Certificates uploaded from then on must be issued by it."""
+    require_admin(user)
+    try:
+        return _ca_out(_certs(request).set_external_ca(_upload_bytes(body.certificate)))
+    except client_certs.CertificateError as exc:
+        raise ApiProblem(400, "CA not set", str(exc)) from None
+
+
+@protected.delete(
+    "/remote-access/external-ca", status_code=status.HTTP_204_NO_CONTENT, tags=["remote access"]
+)
+def delete_external_ca(request: Request, user: CurrentUser) -> None:
+    """Forget your own CA: uploads are then accepted from any CA."""
+    require_admin(user)
+    _certs(request).set_external_ca(None)

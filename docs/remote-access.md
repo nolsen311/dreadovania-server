@@ -126,6 +126,26 @@ certificate for your browser and install it, and turn it on once the page says y
 browser connected with your certificate. (With the fingerprint check off, the page
 asks you to confirm that you checked instead.)
 
+### Certificates from your own CA
+
+If your proxy checks against your own CA (for example step-ca), as well as or
+instead of the server's, the server can still check those certificates:
+
+1. Under **Account → Secure remote access**, with **A reverse proxy** chosen, give
+   your CA's certificate (optional, but then only certificates it issued are
+   accepted).
+2. On the **Account** page, **Add a certificate from your own CA**: upload the
+   certificate on its own (`.pem`, `.crt`, `.cer`), or its `.p12` with the password.
+   The server keeps only the certificate's fingerprint and dates. A `.p12`'s private
+   key and password are used once, in memory, and never stored; upload the
+   certificate alone if you'd rather the key never reaches the server at all.
+3. Install the `.p12` on the browser or phone yourself. For a Switch, choose it under
+   **For**, and put the `.p12` where the app looks for it.
+
+Revoke them at your CA as usual (your proxy's `crl-file`); revoking one on the
+Account page stops the server accepting it. The server's own check (section 1) and
+Cloudflare (section 3) only accept their own CAs' certificates.
+
 ## 3. Cloudflare checks
 
 Cloudflare ends TLS at its edge, so neither your proxy nor the server sees the

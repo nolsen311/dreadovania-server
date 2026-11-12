@@ -212,7 +212,24 @@ differ, these apply.
     gets a Cloudflare certificate before secure remote access is turned on. Browsers
     need a new certificate from the Account page.
   - Cloudflare mode can be turned on once the issuer is configured.
-- **The External issuer** (the owner's own CA) is still to come.
+- **The External issuer, decided with the maintainer (2026-11-12): the server
+  never hands out or keeps an outside CA's private key.** This replaces the
+  amendment's "uploaded per device as a `.p12`, which the server then hands out".
+  - The owner uploads a certificate from their own CA (PEM or DER), or its `.p12`
+    with the password, for a browser or one of their paired Switches. The server
+    records only the certificate's fingerprint, serial and dates. A `.p12` is opened
+    in memory for its certificate; the file, its key and its password are dropped at
+    once and never written anywhere.
+  - Optionally, the admin gives the CA's certificate: uploads must then be issued by
+    it. Expired certificates, CA certificates and ones not for client authentication
+    are refused.
+  - The owner installs the `.p12` on the device. The server's renewal never touches
+    these: `GET /devices/me` gives `not_after` as the time to renew, and the renewal
+    route refuses them.
+  - They're for a proxy that checks against the owner's CA, with the server checking
+    the fingerprint it passes on. The server's own check verifies against the
+    built-in CA and its revocation list, and Cloudflare against its own CA, so
+    neither accepts them.
 - **Docs (part 5):** [docs/remote-access.md](../remote-access.md) has the steps for
   each check, and the HAProxy and Cloudflare recipes.
 - **Until part 4:** a paired Switch can't connect while it's on, until the app
