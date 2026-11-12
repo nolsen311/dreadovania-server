@@ -383,7 +383,8 @@ class ClientCertificates:
         *,
         device_id: str | None = None,
     ) -> dict[str, Any]:
-        """Record a certificate from the owner's own CA: only its fingerprint and dates.
+        """Record a certificate from the owner's own CA, or one made in Cloudflare's
+        dashboard: only its fingerprint and dates.
 
         ``data`` is the certificate (PEM or DER) or a .p12. A .p12 is opened in memory
         for its certificate; the file, its private key and its password are not kept
@@ -406,18 +407,35 @@ class ClientCertificates:
                 )
         except x509.ExtensionNotFound:
             pass  # no restriction: any use, client authentication included
+        sha256 = cert.fingerprint(hashes.SHA256()).hex()
+        # One made in Cloudflare's dashboard is Cloudflare's: record it as such, so that
+        # revoking it here revokes it there too, and it counts towards the zone's limit.
+        issuer, issuer_id = "external", None
+        if self.cloudflare is not None:
+            from dreadovania.cloudflare import CloudflareError
+
+            try:
+                issuer_id = self.cloudflare.find(sha256)
+            except CloudflareError as exc:
+                raise CertificateError(f"couldn't check it with Cloudflare: {exc}") from None
+            if issuer_id is not None:
+                issuer = "cloudflare"
+            elif self.use_cloudflare():
+                raise CertificateError(
+                    "that isn't one of this zone's active client certificates at Cloudflare,"
+                    " which only lets in its own: create it there, or add one here"
+                )
         ca = self.external_ca()
-        if ca is not None:
+        if ca is not None and issuer == "external":
             try:
                 cert.verify_directly_issued_by(ca)
             except (ValueError, TypeError, InvalidSignature):
                 raise CertificateError("that certificate wasn't issued by your CA") from None
         kind: Kind = "device" if device_id else "browser"
         name = " ".join(name.split())[:MAX_NAME] or ("Switch" if device_id else "Browser")
-        sha256 = cert.fingerprint(hashes.SHA256()).hex()
         record = {
             "id": new_id(), "owner_id": owner_id, "device_id": device_id, "kind": kind,
-            "name": name, "issuer": "external", "issuer_id": None,
+            "name": name, "issuer": issuer, "issuer_id": issuer_id,
             "serial": format(cert.serial_number, "x"), "sha256": sha256,
             "not_before": _iso(cert.not_valid_before_utc),
             "not_after": _iso(cert.not_valid_after_utc), "created_at": utc_now(),

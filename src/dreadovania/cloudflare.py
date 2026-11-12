@@ -88,8 +88,25 @@ class CloudflareIssuer:
     def revoke(self, cert_id: str) -> None:
         self._call("DELETE", f"/{cert_id}")
 
+    def find(self, sha256: str) -> str | None:
+        """The ID of the zone's active client certificate with this fingerprint, if any."""
+        wanted = sha256.lower().replace(":", "")
+        page, pages = 1, 1
+        while page <= pages and page <= 10:  # 100 per zone outside Enterprise: 2 pages
+            answer = self._call("GET", f"?status=active&per_page=50&page={page}")
+            for cert in answer.get("result") or []:
+                if not isinstance(cert, dict):
+                    continue
+                found = str(cert.get("fingerprint_sha256", "")).lower().replace(":", "")
+                if found == wanted and cert.get("id"):
+                    return str(cert["id"])
+            pages = int((answer.get("result_info") or {}).get("total_pages") or 1)
+            page += 1
+        return None
+
     def active_count(self) -> int:
-        answer = self._call("GET", "?status=active&per_page=1")
+        # per_page must be 5 to 50 (Cloudflare's API description).
+        answer = self._call("GET", "?status=active&per_page=5")
         info = answer.get("result_info") or {}
         count = info.get("total_count", info.get("count"))
         if count is None:
