@@ -1,0 +1,61 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{% extends "base.html" %}
+{% block title %}Cosmetics · Dreadovania{% endblock %}
+{% block content %}
+<h1>Cosmetics</h1>
+<p class="muted">How your patched seeds look and behave in the game. These don't change
+  where items are, so they aren't part of a seed or its permalink: they apply whenever
+  you patch a seed, from here or from the Switch app. A seed you patched before keeps its
+  old options until you patch it again (its page offers that).</p>
+
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+{% if request.query_params.get("saved") %}<p class="ok" role="status">Saved. They apply the next time you patch a seed.</p>{% endif %}
+<form method="post" action="/account/cosmetics" class="stack">
+  <section class="card stack">
+    <h2>Save slots</h2>
+    <label class="check"><input type="checkbox" name="separate_save_slots" value="on" {% if c.separate_save_slots %}checked{% endif %}>
+      Separate save slots for each seed</label>
+    <p class="muted"><small>Each seed gets its own three save slots (their borders turn green),
+      so switching seeds never loads another seed's save, and patching the same seed again
+      keeps its saves. Each slot you use takes about 300 KB of Dread's save data, which
+      is only freed by deleting Dread's save data in System Settings. Saves made before,
+      in the shared slots, stay there.</small></p>
+  </section>
+
+  <section class="card stack">
+    <h2>HUD</h2>
+    {% for name, label in hud %}
+      <label class="check"><input type="checkbox" name="{{ name }}" value="on" {% if c[name] %}checked{% endif %}> {{ label }}</label>
+    {% endfor %}
+    <label>Show room names
+      <select name="show_room_names">
+        {% for value, label in room_names.items() %}<option value="{{ value }}" {% if c.show_room_names == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+  </section>
+
+  <section class="card stack">
+    <h2>Volume</h2>
+    {% for name, label in volumes %}
+      <label>{{ label }} <small>(0–100)</small>
+        <input name="{{ name }}" class="short" inputmode="numeric" pattern="[0-9]*" maxlength="3" value="{{ c[name] }}" required>
+      </label>
+    {% endfor %}
+  </section>
+
+  <section class="card stack">
+    <h2>Looks</h2>
+    <label>Missile tank colours
+      <select name="missile_cosmetic">
+        {% for value, label in missile_colours.items() %}<option value="{{ value }}" {% if c.missile_cosmetic == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <p class="muted"><small>Alternate shield textures on doors:</small></p>
+    {% for name, label in shields %}
+      <label class="check"><input type="checkbox" name="{{ name }}" value="on" {% if c[name] == "ALTERNATE" %}checked{% endif %}> {{ label }}</label>
+    {% endfor %}
+  </section>
+
+  <button type="submit" class="primary">Save</button>
+</form>
+{% endblock %}

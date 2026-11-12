@@ -21,11 +21,13 @@ from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 log = logging.getLogger(__name__)
 
 DEFAULT_COMMAND: tuple[str, ...] = (sys.executable, "-m", "randovania")
+# For what the CLI can't do: patcher data with cosmetic options (ADR 0002, ADR 0025).
+DEFAULT_ADAPTER: tuple[str, ...] = (sys.executable, "-m", "dreadovania.randovania_adapter")
 MAX_RDVGAME_BYTES = 50 * 1024 * 1024
 _PERMALINK_LINE = re.compile(r"^Permalink: (\S+)$")
 _HASH_LINE = re.compile(r"Hash: (\S+)$")
@@ -62,6 +64,8 @@ class ExportRequest:
 
     rdvgame: Path
     romfs: Path
+    # Randovania's cosmetic options as JSON (ADR 0025); None for its defaults.
+    cosmetics: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -90,8 +94,10 @@ class RandovaniaRunner:
         timeout: float = 600,
         niceness: int = 10,
         export_timeout: float = 1800,
+        adapter_command: Sequence[str] = DEFAULT_ADAPTER,
     ):
         self.command = tuple(command)
+        self.adapter_command = tuple(adapter_command)
         self.timeout = timeout
         self.export_timeout = export_timeout
         self.niceness = niceness
@@ -118,11 +124,20 @@ class RandovaniaRunner:
         """The two commands: write the patcher data, then patch the game with it.
 
         ``--use-exlaunch`` matches what Randovania's own export dialog always uses.
+        With cosmetic options, the patcher data comes from the adapter, which reads
+        them from ``cosmetics.json`` next to the patcher data.
         """
-        data = [
-            *self.command, "layout", "patcher-data",
-            "--layout-file", str(request.rdvgame), "--output", str(patcher_data),
-        ]  # fmt: skip
+        if request.cosmetics is None:
+            data = [
+                *self.command, "layout", "patcher-data",
+                "--layout-file", str(request.rdvgame), "--output", str(patcher_data),
+            ]  # fmt: skip
+        else:  # the CLI's patcher-data only knows the default cosmetics
+            data = [
+                *self.adapter_command, "patcher-data", "--layout-file", str(request.rdvgame),
+                "--cosmetics", str(patcher_data.with_name("cosmetics.json")),
+                "--output", str(patcher_data),
+            ]  # fmt: skip
         export = [
             *self.command, "layout", "export-game", "--patcher-data", str(patcher_data), "dread",
             "--input-path", str(request.romfs), "--output-path", str(output),
@@ -159,6 +174,8 @@ class RandovaniaRunner:
         patcher_data = workdir / "patcher-data.json"
         output = workdir / "mod"
         data_args, export_args = self.build_export_args(request, patcher_data, output)
+        if request.cosmetics is not None:
+            patcher_data.with_name("cosmetics.json").write_text(json.dumps(request.cosmetics))
         try:
             async with asyncio.timeout(self.export_timeout):
                 on_progress("Preparing the patch")

@@ -261,6 +261,165 @@
         "title": "ConnectionTest",
         "type": "object"
       },
+      "Cosmetics": {
+        "additionalProperties": false,
+        "description": "Cosmetic options: how a patched seed looks and behaves, not where items are.",
+        "properties": {
+          "alt_bomb": {
+            "default": "DEFAULT",
+            "enum": [
+              "DEFAULT",
+              "ALTERNATE"
+            ],
+            "title": "Alt Bomb",
+            "type": "string"
+          },
+          "alt_closed": {
+            "default": "DEFAULT",
+            "enum": [
+              "DEFAULT",
+              "ALTERNATE"
+            ],
+            "title": "Alt Closed",
+            "type": "string"
+          },
+          "alt_cross_bomb": {
+            "default": "DEFAULT",
+            "enum": [
+              "DEFAULT",
+              "ALTERNATE"
+            ],
+            "title": "Alt Cross Bomb",
+            "type": "string"
+          },
+          "alt_diffusion_beam": {
+            "default": "DEFAULT",
+            "enum": [
+              "DEFAULT",
+              "ALTERNATE"
+            ],
+            "title": "Alt Diffusion Beam",
+            "type": "string"
+          },
+          "alt_ice_missile": {
+            "default": "DEFAULT",
+            "enum": [
+              "DEFAULT",
+              "ALTERNATE"
+            ],
+            "title": "Alt Ice Missile",
+            "type": "string"
+          },
+          "alt_power_bomb": {
+            "default": "ALTERNATE",
+            "enum": [
+              "DEFAULT",
+              "ALTERNATE"
+            ],
+            "title": "Alt Power Bomb",
+            "type": "string"
+          },
+          "alt_storm_missile": {
+            "default": "DEFAULT",
+            "enum": [
+              "DEFAULT",
+              "ALTERNATE"
+            ],
+            "title": "Alt Storm Missile",
+            "type": "string"
+          },
+          "ambience_volume": {
+            "default": 100,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Ambience Volume",
+            "type": "integer"
+          },
+          "enable_auto_tracker": {
+            "default": true,
+            "description": "Let an item tracker on the network read the game.",
+            "title": "Enable Auto Tracker",
+            "type": "boolean"
+          },
+          "missile_cosmetic": {
+            "default": "NONE",
+            "enum": [
+              "NONE",
+              "PRIDE",
+              "TRANS",
+              "NONBINARY",
+              "ASEXUAL",
+              "BISEXUAL",
+              "PANSEXUAL",
+              "GENDERQUEER"
+            ],
+            "title": "Missile Cosmetic",
+            "type": "string"
+          },
+          "music_volume": {
+            "default": 100,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Music Volume",
+            "type": "integer"
+          },
+          "separate_save_slots": {
+            "default": true,
+            "description": "Keep each seed's three save slots apart from other seeds'.",
+            "title": "Separate Save Slots",
+            "type": "boolean"
+          },
+          "sfx_volume": {
+            "default": 100,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Sfx Volume",
+            "type": "integer"
+          },
+          "show_boss_lifebar": {
+            "default": false,
+            "title": "Show Boss Lifebar",
+            "type": "boolean"
+          },
+          "show_death_counter": {
+            "default": false,
+            "title": "Show Death Counter",
+            "type": "boolean"
+          },
+          "show_dna_in_hud": {
+            "default": false,
+            "title": "Show Dna In Hud",
+            "type": "boolean"
+          },
+          "show_enemy_damage": {
+            "default": false,
+            "title": "Show Enemy Damage",
+            "type": "boolean"
+          },
+          "show_enemy_life": {
+            "default": false,
+            "title": "Show Enemy Life",
+            "type": "boolean"
+          },
+          "show_player_damage": {
+            "default": false,
+            "title": "Show Player Damage",
+            "type": "boolean"
+          },
+          "show_room_names": {
+            "default": "NEVER",
+            "enum": [
+              "NEVER",
+              "ALWAYS",
+              "WITH_FADE"
+            ],
+            "title": "Show Room Names",
+            "type": "string"
+          }
+        },
+        "title": "Cosmetics",
+        "type": "object"
+      },
       "DeviceCertificate": {
         "description": "A Switch's client certificate (ADR 0023): keep it with the token, present it on\nevery connection to this server, and ask for a new one after ``renew_after``.\nThe server keeps neither the private key nor the password.",
         "properties": {
@@ -912,6 +1071,29 @@
               }
             ],
             "title": "Completed At"
+          },
+          "cosmetics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Cosmetics"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The cosmetic options it was patched with, once ready (ADR 0025)."
+          },
+          "cosmetics_current": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether those are your current cosmetic options. If not, patching the seed again (`POST /seeds/{seed_id}/mod`) applies the current ones.",
+            "title": "Cosmetics Current"
           },
           "created_at": {
             "title": "Created At",
@@ -2803,6 +2985,68 @@
         ]
       }
     },
+    "/api/v1/cosmetics": {
+      "get": {
+        "description": "Your cosmetic options, used whenever you patch a seed (ADR 0025).\n\nThey change how a patched seed looks and behaves, not where items are, so\nthey're not part of the seed or its permalink.",
+        "operationId": "get_cosmetics_api_v1_cosmetics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cosmetics"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Cosmetics",
+        "tags": [
+          "patching"
+        ]
+      },
+      "put": {
+        "description": "Replace your cosmetic options. Seeds patched before keep theirs until patched again.",
+        "operationId": "put_cosmetics_api_v1_cosmetics_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Cosmetics"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cosmetics"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Cosmetics",
+        "tags": [
+          "patching"
+        ]
+      }
+    },
     "/api/v1/devices": {
       "get": {
         "operationId": "list_devices_api_v1_devices_get",
@@ -4302,7 +4546,7 @@
         ]
       },
       "post": {
-        "description": "Patch a generated seed with your game files. Follow the job for progress.\n\nNeeds ready game files (see `GET /romfs`). Race seeds can be patched: patching\ndoesn't reveal the spoiler.",
+        "description": "Patch a generated seed with your game files and cosmetic options. Follow the job.\n\nA patched seed can be patched again only when your cosmetic options have changed\nsince (its mod's `cosmetics_current` is false); otherwise this is a 409.\n\nNeeds ready game files (see `GET /romfs`). Race seeds can be patched: patching\ndoesn't reveal the spoiler.",
         "operationId": "patch_seed_api_v1_seeds__seed_id__mod_post",
         "parameters": [
           {

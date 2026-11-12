@@ -19,6 +19,7 @@ from urllib.parse import parse_qs
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from dreadovania import (
@@ -31,6 +32,7 @@ from dreadovania import (
     rdv_presets,
     remote_access,
 )
+from dreadovania import cosmetics as cosmetic_options
 from dreadovania.jobs import CannotPatch, CannotSend, QueueFull
 from dreadovania.problems import ApiProblem
 from dreadovania.rdv_presets import PresetProblem
@@ -279,6 +281,10 @@ def _status_context(request: Request, user: auth.Session, seed: dict) -> dict[st
             context["romfs"] = request.app.state.game_files.inspector(user.user_id).status()
         if seed["mod_status"] == "ready":
             context.update(_push_context(request, user, seed))
+            current = request.app.state.jobs.cosmetics.get(user.user_id)
+            context["cosmetics_current"] = (
+                cosmetic_options.recorded(seed.get("mod_cosmetics")) == current
+            )
     return context
 
 
@@ -455,6 +461,48 @@ async def game_files_page(request: Request) -> Response:
 
 
 # ---- Switches (ADR 0016) -----------------------------------------------------------------------
+
+
+def _cosmetics_page(request: Request, user: auth.Session, c: Any, status_code: int = 200,
+                    error: str | None = None) -> Response:  # fmt: skip
+    return render(
+        request, "cosmetics.html", status_code=status_code, user=user, c=c, error=error,
+        hud=cosmetic_options.HUD, room_names=cosmetic_options.ROOM_NAMES,
+        missile_colours=cosmetic_options.MISSILE_COLOURS, volumes=cosmetic_options.VOLUMES,
+        shields=cosmetic_options.SHIELDS,
+    )  # fmt: skip
+
+
+@router.get("/account/cosmetics")
+def cosmetics_page(request: Request) -> Response:
+    user = page_session(request)
+    return _cosmetics_page(request, user, request.app.state.jobs.cosmetics.get(user.user_id))
+
+
+@router.post("/account/cosmetics")
+async def cosmetics_save(request: Request) -> Response:
+    """The Cosmetics form (ADR 0025). An unticked checkbox isn't sent, so it means off."""
+    user = page_session(request)
+    form = await read_form(request)
+    fields: dict[str, Any] = {
+        name: form.get(name) == "on"
+        for name in ["separate_save_slots", *(n for n, _ in cosmetic_options.HUD)]
+    }
+    fields |= {
+        name: "ALTERNATE" if form.get(name) == "on" else "DEFAULT"
+        for name, _ in cosmetic_options.SHIELDS
+    }
+    fields |= {name: form.get(name, "").strip() for name, _ in cosmetic_options.VOLUMES}
+    fields |= {name: form.get(name, "") for name in ("show_room_names", "missile_cosmetic")}
+    try:
+        options = cosmetic_options.Cosmetics.model_validate(fields)
+    except ValidationError:
+        return _cosmetics_page(
+            request, user, request.app.state.jobs.cosmetics.get(user.user_id), status_code=400,
+            error="Volumes are whole numbers from 0 to 100; pick the rest from the lists.",
+        )  # fmt: skip
+    request.app.state.jobs.cosmetics.set(user.user_id, options)
+    return RedirectResponse("/account/cosmetics?saved=1", status_code=303)
 
 
 @router.get("/switches")

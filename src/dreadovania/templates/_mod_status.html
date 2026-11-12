@@ -9,11 +9,18 @@
       {% if seed.mod_game_version %}<dt>Game version</dt><dd>{{ seed.mod_game_version }}</dd>{% endif %}
       {% if seed.mod_size_bytes is not none %}<dt>Size</dt><dd>{{ seed.mod_size_bytes | filesizeformat }}</dd>{% endif %}
     </dl>
+    {% if not cosmetics_current %}
+      <p class="muted">Your <a href="/account/cosmetics">cosmetic options</a> have changed
+        since this seed was patched.</p>
+      <form hx-post="/seeds/{{ seed.id }}/patch" hx-target="#messages">
+        <button type="submit">Patch again with your current options</button>
+      </form>
+    {% endif %}
     <a class="button" href="/api/v1/seeds/{{ seed.id }}/mod.zip" download>Download for Switch (.zip)</a>
     <p class="muted">First delete the previous seed's
       <code>atmosphere/contents/010093801237c000</code> folder, then extract this zip at
       the root of your SD card (it contains an <code>atmosphere</code> folder). Start
-      a new save file for this seed. It's made from your own game files: don't share it.</p>
+      a new save file for this seed (unless it has <a href="/account/cosmetics">separate save slots</a>). It's made from your own game files: don't share it.</p>
     <form hx-post="/seeds/{{ seed.id }}/mod/delete" hx-confirm="Delete the patched files? You can patch the seed again later.">
       <button type="submit" class="danger small">Delete patched files</button>
     </form>

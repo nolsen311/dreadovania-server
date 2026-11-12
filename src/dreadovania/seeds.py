@@ -29,7 +29,7 @@ _SEED_COLUMNS = (
     " m.status AS mod_status, m.game_version AS mod_game_version,"
     " m.file_count AS mod_file_count, m.size_bytes AS mod_size_bytes,"
     " m.randovania_version AS mod_randovania_version, m.created_at AS mod_created_at,"
-    " m.completed_at AS mod_completed_at,"
+    " m.completed_at AS mod_completed_at, m.cosmetics AS mod_cosmetics,"
     " (SELECT j.id FROM jobs j WHERE j.seed_id = s.id AND j.kind = 'export'"
     "  ORDER BY j.created_at DESC LIMIT 1) AS mod_job_id,"
     " (SELECT j.id FROM jobs j WHERE j.seed_id = s.id AND j.kind = 'push'"
