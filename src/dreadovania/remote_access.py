@@ -257,12 +257,13 @@ class RemoteAccess:
             raise RemoteAccessError("choose who checks certificates first")
         if current.mode == "server" and not self.serves_tls:
             raise RemoteAccessError("this server doesn't serve HTTPS itself any more")
-        if current.mode == "cloudflare":
-            # Cloudflare only accepts certificates from its own CA on most plans, and
-            # issuing those through its API is the next part of ADR 0023.
+        if current.mode == "cloudflare" and self.certs.cloudflare is None:
+            # On most plans Cloudflare only accepts certificates from its own CA, so the
+            # server must be able to have Cloudflare sign them.
             raise RemoteAccessError(
-                "Cloudflare checks certificates from its own CA, which this version can't"
-                " issue yet: for now, choose this server or a proxy that ends TLS"
+                "Cloudflare checks certificates from its own CA: set"
+                " DREADOVANIA_CLOUDFLARE_ZONE_ID and DREADOVANIA_CLOUDFLARE_API_TOKEN_FILE"
+                " so the server can get them, then restart it"
             )
         if self.server_sees_certificates(current):
             if presented is None:
@@ -362,6 +363,8 @@ class RemoteAccess:
             "presented": presented,
             "front_door": front_door_list(),
             "cloudflare_expression": cloudflare_expression(),
+            "cloudflare_configured": self.certs.cloudflare is not None,
+            "issuer": self.certs.current_issuer(),
         }
 
 

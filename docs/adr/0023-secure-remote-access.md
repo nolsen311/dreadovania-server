@@ -196,6 +196,23 @@ differ, these apply.
     their own from the Account page.
   - **The settings page names the accounts without a browser certificate** before
     it's turned on, since they'd be locked out of the web UI.
+- **The Cloudflare issuer:**
+  - Configured with `DREADOVANIA_CLOUDFLARE_ZONE_ID` and
+    `DREADOVANIA_CLOUDFLARE_API_TOKEN_FILE` (a secret file; the token needs only "SSL
+    and Certificates Write" on that zone). The server refuses to start if only one is
+    set, or the file is missing or empty.
+  - While Cloudflare is the chosen check, new certificates come from Cloudflare: the
+    server makes the key and a CSR, `POST /zones/{zone}/client_certificates` signs it,
+    and the key stays only in the one-time `.p12`. Past 100 active certificates for
+    the zone, issuing is refused. Cloudflare must sign the key that was asked for.
+  - Revoking calls `DELETE /zones/{zone}/client_certificates/{id}` at once. A sweep
+    every 5 minutes passes on revocations made by removing a device or an account, and
+    retries any Cloudflare couldn't take.
+  - Switching to Cloudflare makes `GET /devices/me` tell each Switch to renew now, so it
+    gets a Cloudflare certificate before secure remote access is turned on. Browsers
+    need a new certificate from the Account page.
+  - Cloudflare mode can be turned on once the issuer is configured.
+- **The External issuer** (the owner's own CA) is still to come.
 - **Until part 4:** a paired Switch can't connect while it's on, until the app
   presents its certificate.
 

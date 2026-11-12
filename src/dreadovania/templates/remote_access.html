@@ -30,7 +30,7 @@
     <label class="choice"><input type="radio" name="mode" value="proxy" {% if status.mode == "proxy" %}checked{% endif %} {% if status.enabled %}disabled{% endif %}>
       <span><strong>A reverse proxy</strong><br><small>HAProxy, Caddy or nginx ends TLS and checks against the CA and revocation list below.</small></span></label>
     <label class="choice"><input type="radio" name="mode" value="cloudflare" {% if status.mode == "cloudflare" %}checked{% endif %} {% if status.enabled %}disabled{% endif %}>
-      <span><strong>Cloudflare</strong><br><small>The hostname is proxied by Cloudflare, which checks with a WAF rule. Cloudflare only accepts certificates from its own CA, which this version can't issue yet, so this can't be turned on yet.</small></span></label>
+      <span><strong>Cloudflare</strong><br><small>The hostname is proxied by Cloudflare, which checks with a WAF rule. Certificates then come from Cloudflare's own CA, through its API{% if not status.cloudflare_configured %}: set <code>DREADOVANIA_CLOUDFLARE_ZONE_ID</code> and <code>DREADOVANIA_CLOUDFLARE_API_TOKEN_FILE</code> first{% endif %}.</small></span></label>
     <label class="choice"><input type="checkbox" name="check_forwarded" {% if status.check_forwarded %}checked{% endif %} {% if status.enabled %}disabled{% endif %}>
       <span>Behind a proxy or Cloudflare, also check the certificate it passes on<br>
         <small>In <code>X-SSL-Client-SHA256</code> (hex) or <code>Client-Cert</code> (RFC 9440), only from <code>DREADOVANIA_TRUSTED_PROXIES</code>{% if not status.trusted_proxies %}, which isn't set{% endif %}.{% if status.mode and status.mode != "server" %} This request {% if status.forwarded_header %}carried one{% elif status.via_trusted_proxy %}came from a trusted proxy without one{% else %}didn't come from a trusted proxy{% endif %}.{% endif %}</small></span></label>
@@ -57,6 +57,15 @@
       this hostname. Then add a WAF custom rule with this expression and the action
       <strong>Block</strong>:</p>
     <pre>{{ status.cloudflare_expression }}</pre>
+    <p><strong>Turn on authenticated origin pulls</strong> for the zone, and have the proxy
+      behind Cloudflare accept only Cloudflare's own client certificate. Otherwise the
+      server can be reached around Cloudflare's check.</p>
+    {% if status.issuer == "cloudflare" %}
+    <p>New certificates now come from Cloudflare (at most 100 active per zone). Certificates
+      from this server's own CA don't get through Cloudflare: add a new one for each browser
+      and phone, and let each Switch renew (the app does it the next time it connects) before
+      you turn this on.</p>
+    {% endif %}
   {% endif %}
   <p>Left open without a certificate:</p>
   <ul>{% for p in status.front_door %}<li><code>{{ p }}</code></li>{% endfor %}</ul>

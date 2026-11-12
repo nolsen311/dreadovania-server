@@ -13,13 +13,15 @@ Nothing here enforces anything: that is the TLS layer's job (ADR 0023 PR 2).
 
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -29,6 +31,11 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from dreadovania.db import Database, utc_now
 from dreadovania.jobs import new_id
+
+if TYPE_CHECKING:
+    from dreadovania.cloudflare import CloudflareIssuer
+
+log = logging.getLogger(__name__)
 
 Kind = Literal["device", "browser"]
 
@@ -94,6 +101,10 @@ class ClientCertificates:
     ) -> None:
         self.db = db
         self.device_days, self.browser_days = device_days, browser_days
+        # Set by the app when Cloudflare is configured (ADR 0023): signs while it's the
+        # chosen check (``use_cloudflare``), otherwise the built-in CA does.
+        self.cloudflare: CloudflareIssuer | None = None
+        self.use_cloudflare: Callable[[], bool] = lambda: False
         self.dir = data_dir / "remote-access"
         self.ca_cert_path = self.dir / "ca.pem"
         self.ca_key_path = self.dir / "ca.key"
@@ -164,6 +175,10 @@ class ClientCertificates:
 
     # ---- issuing ---------------------------------------------------------------------
 
+    def current_issuer(self) -> str:
+        """Who signs new certificates: Cloudflare when it's the chosen check, else us."""
+        return "cloudflare" if self.cloudflare is not None and self.use_cloudflare() else "builtin"
+
     def issue(
         self,
         owner_id: str,
@@ -178,33 +193,18 @@ class ClientCertificates:
         if kind == "device" and not device_id:
             raise CertificateError("a Switch's certificate belongs to its paired device")
         days = days or (self.device_days if kind == "device" else self.browser_days)
-        ca_cert, ca_key = self._ca()
         key = rsa.generate_private_key(public_exponent=65537, key_size=KEY_BITS)
         cert_id = new_id()
-        now = _now()
-        not_after = now + timedelta(days=days)
-        cert = (
-            x509.CertificateBuilder()
-            .subject_name(
-                x509.Name(
-                    [
-                        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Dreadovania"),
-                        x509.NameAttribute(NameOID.COMMON_NAME, f"{kind} {cert_id}"),
-                    ]
-                )
-            )
-            .issuer_name(ca_cert.subject)
-            .public_key(key.public_key())
-            .serial_number(x509.random_serial_number())
-            .not_valid_before(now - timedelta(minutes=5))
-            .not_valid_after(not_after)
-            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
-            .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]), False)
-            .add_extension(
-                x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), False
-            )
-            .sign(ca_key, hashes.SHA256())
-        )
+        subject = x509.Name([
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Dreadovania"),
+            x509.NameAttribute(NameOID.COMMON_NAME, f"{kind} {cert_id}"),
+        ])  # fmt: skip
+        issuer = self.current_issuer()
+        issuer_id: str | None = None
+        if issuer == "cloudflare":
+            cert, chain, issuer_id = self._sign_at_cloudflare(key, subject, days)
+        else:
+            cert, chain = self._sign_here(key, subject, days)
         password = secrets.token_urlsafe(12)
         # The older PBE (SHA-1 and 3DES) is the one the Switch's TLS service and
         # older iOS import reliably. The file is handed out once, over TLS.
@@ -216,24 +216,108 @@ class ClientCertificates:
             .build(password.encode())
         )
         p12 = pkcs12.serialize_key_and_certificates(
-            f"Dreadovania {name}".encode(), key, cert, [ca_cert], encryption
+            f"Dreadovania {name}".encode(), key, cert, chain, encryption
         )
         record = {
             "id": cert_id, "owner_id": owner_id, "device_id": device_id, "kind": kind,
-            "name": name, "issuer": "builtin", "serial": format(cert.serial_number, "x"),
+            "name": name, "issuer": issuer, "issuer_id": issuer_id,
+            "serial": format(cert.serial_number, "x"),
             "sha256": cert.fingerprint(hashes.SHA256()).hex(),
-            "not_before": _iso(now), "not_after": _iso(not_after), "created_at": utc_now(),
+            "not_before": _iso(cert.not_valid_before_utc),
+            "not_after": _iso(cert.not_valid_after_utc),
+            "created_at": utc_now(),
         }  # fmt: skip
         with self.db.connect() as conn:
             conn.execute(
                 "INSERT INTO client_certificates (id, owner_id, device_id, kind, name, issuer,"
-                " serial, sha256, not_before, not_after, created_at)"
-                " VALUES (:id, :owner_id, :device_id, :kind, :name, :issuer, :serial, :sha256,"
-                " :not_before, :not_after, :created_at)",
+                " issuer_id, serial, sha256, not_before, not_after, created_at)"
+                " VALUES (:id, :owner_id, :device_id, :kind, :name, :issuer, :issuer_id,"
+                " :serial, :sha256, :not_before, :not_after, :created_at)",
                 record,
             )
         return Issued(self._public(record | {"revoked_at": None, "replaced_by": None}),
                       p12, password)  # fmt: skip
+
+    def _sign_here(
+        self, key: rsa.RSAPrivateKey, subject: x509.Name, days: int
+    ) -> tuple[x509.Certificate, list[x509.Certificate]]:
+        ca_cert, ca_key = self._ca()
+        now = _now()
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(ca_cert.subject)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - timedelta(minutes=5))
+            .not_valid_after(now + timedelta(days=days))
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+            .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]), False)
+            .add_extension(
+                x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), False
+            )
+            .sign(ca_key, hashes.SHA256())
+        )
+        return cert, [ca_cert]
+
+    def _sign_at_cloudflare(
+        self, key: rsa.RSAPrivateKey, subject: x509.Name, days: int
+    ) -> tuple[x509.Certificate, list[x509.Certificate], str]:
+        from dreadovania.cloudflare import ZONE_LIMIT, CloudflareError
+
+        assert self.cloudflare is not None  # noqa: S101 (current_issuer checked)
+        csr = (
+            x509.CertificateSigningRequestBuilder().subject_name(subject)
+            .sign(key, hashes.SHA256())
+            .public_bytes(serialization.Encoding.PEM).decode()
+        )  # fmt: skip
+        try:
+            if self.cloudflare.active_count() >= ZONE_LIMIT:
+                raise CertificateError(
+                    f"Cloudflare already has {ZONE_LIMIT} active client certificates for this"
+                    " zone, its limit: revoke some first"
+                )
+            signed = self.cloudflare.sign(csr, days)
+            cert = x509.load_pem_x509_certificate(signed.certificate_pem.encode())
+        except CloudflareError as exc:
+            raise CertificateError(str(exc)) from None
+        except ValueError:
+            raise CertificateError("Cloudflare's certificate couldn't be read") from None
+        if cert.public_key().public_numbers() != key.public_key().public_numbers():
+            raise CertificateError("Cloudflare signed a different key than the one asked for")
+        return cert, [], signed.id
+
+    def sync_revocations(self) -> int:
+        """Pass revocations on to Cloudflare. Returns how many it accepted.
+
+        Revoking here, by renewal, or by removing a device or an account (a database
+        trigger) marks the row; this sends each one on, and retries next time if
+        Cloudflare couldn't be reached.
+        """
+        if self.cloudflare is None:
+            return 0
+        from dreadovania.cloudflare import CloudflareError
+
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT id, issuer_id FROM client_certificates WHERE issuer = 'cloudflare'"
+                " AND revoked_at IS NOT NULL AND issuer_revoked_at IS NULL"
+                " AND issuer_id IS NOT NULL"
+            ).fetchall()
+        done = 0
+        for row in rows:
+            try:
+                self.cloudflare.revoke(row["issuer_id"])
+            except CloudflareError as exc:
+                log.warning("Couldn't revoke a certificate at Cloudflare yet: %s", exc)
+                continue
+            with self.db.connect() as conn:
+                conn.execute(
+                    "UPDATE client_certificates SET issuer_revoked_at = ? WHERE id = ?",
+                    (utc_now(), row["id"]),
+                )
+            done += 1
+        return done
 
     # ---- the record ------------------------------------------------------------------
 
@@ -314,6 +398,7 @@ class ClientCertificates:
             ).rowcount
         if changed:
             self.publish_crl()
+            self.sync_revocations()
         return bool(changed)
 
     def renew(self, owner_id: str, cert_id: str) -> Issued:
@@ -351,6 +436,7 @@ class ClientCertificates:
             ).rowcount
         if changed:
             self.publish_crl()
+            self.sync_revocations()
         return changed
 
     def due_for_renewal(self, cert: dict[str, Any]) -> bool:

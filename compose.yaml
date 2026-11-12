@@ -21,6 +21,10 @@ services:
       # DREADOVANIA_TRUSTED_PROXIES: 172.18.0.0/16
       # Secure remote access's front door, when the port is mapped to another one.
       # DREADOVANIA_FRONT_DOOR_URL: https://dread.home.example.com:8443
+      # Secure remote access through Cloudflare (ADR 0023): the zone ID, and a secret
+      # file with an API token limited to "SSL and Certificates Write" on that zone.
+      # DREADOVANIA_CLOUDFLARE_ZONE_ID: 0123456789abcdef0123456789abcdef
+      # DREADOVANIA_CLOUDFLARE_API_TOKEN_FILE: /run/secrets/cloudflare_api_token
       # Offer paired Switches the latest verified app release (ADR 0021). The server
       # then contacts GitHub at most every 6 hours while the app is in use.
       # DREADOVANIA_APP_UPDATES: "off"
