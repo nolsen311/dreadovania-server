@@ -298,6 +298,95 @@
         "title": "DeviceCertificate",
         "type": "object"
       },
+      "DeviceCertificateStatus": {
+        "properties": {
+          "issuer": {
+            "description": "`builtin` or `cloudflare`.",
+            "title": "Issuer",
+            "type": "string"
+          },
+          "not_after": {
+            "title": "Not After",
+            "type": "string"
+          },
+          "renew_after": {
+            "description": "When to ask for a replacement. Now, if the server has changed who signs certificates (for example to Cloudflare) since this one was issued.",
+            "title": "Renew After",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha256",
+          "issuer",
+          "not_after",
+          "renew_after"
+        ],
+        "title": "DeviceCertificateStatus",
+        "type": "object"
+      },
+      "DeviceMe": {
+        "properties": {
+          "certificate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeviceCertificateStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "This Switch's current client certificate (ADR 0023), if it has one."
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Ip"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "last_used_at",
+          "last_ip",
+          "certificate"
+        ],
+        "title": "DeviceMe",
+        "type": "object"
+      },
       "DeviceOut": {
         "properties": {
           "created_at": {
@@ -1181,6 +1270,11 @@
             "title": "Check Forwarded",
             "type": "boolean"
           },
+          "cloudflare_configured": {
+            "description": "Whether the server can have Cloudflare sign certificates.",
+            "title": "Cloudflare Configured",
+            "type": "boolean"
+          },
           "cloudflare_expression": {
             "description": "The WAF custom rule to block with.",
             "title": "Cloudflare Expression",
@@ -1215,6 +1309,11 @@
             ],
             "description": "Where pairing and invites go when the server checks certificates itself.",
             "title": "Front Door Url"
+          },
+          "issuer": {
+            "description": "Who signs new certificates: `builtin` or `cloudflare`.",
+            "title": "Issuer",
+            "type": "string"
           },
           "mode": {
             "anyOf": [
@@ -1267,7 +1366,9 @@
           "presented",
           "front_door",
           "front_door_url",
-          "cloudflare_expression"
+          "cloudflare_expression",
+          "cloudflare_configured",
+          "issuer"
         ],
         "title": "RemoteAccessOut",
         "type": "object"
@@ -2594,14 +2695,14 @@
         ]
       },
       "get": {
-        "description": "The device making this request (for the Switch app to check its pairing).",
+        "description": "The device making this request (for the Switch app to check its pairing, and\nwhen to renew its certificate).",
         "operationId": "current_device_api_v1_devices_me_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DeviceOut"
+                  "$ref": "#/components/schemas/DeviceMe"
                 }
               }
             },

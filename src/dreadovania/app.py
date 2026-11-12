@@ -13,7 +13,16 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
-from dreadovania import __version__, auth, problems, remote_access, routes_api, routes_auth, ui
+from dreadovania import (
+    __version__,
+    auth,
+    cloudflare,
+    problems,
+    remote_access,
+    routes_api,
+    routes_auth,
+    ui,
+)
 from dreadovania.app_updates import AppUpdates
 from dreadovania.client_certs import ClientCertificates
 from dreadovania.config import Settings
@@ -77,6 +86,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     if auth.setup_required(db):
         _announce_setup_link(settings, auth.create_setup_token(db))
     worker = asyncio.create_task(queue.run_worker(), name="job-worker")
+    sweeper = asyncio.create_task(_sync_revocations(app), name="revocation-sweeper")
     app.state.db, app.state.jobs = db, queue
     app.state.presets = PresetStore(db)
     app.state.seeds = SeedStore(db, settings.data_dir)
@@ -90,6 +100,15 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         serves_tls=settings.tls_cert_file is not None,
         trusted_proxies=settings.trusted_proxy_list,
     )  # fmt: skip
+    if app.state.cloudflare is None:
+        app.state.cloudflare = cloudflare.from_settings(
+            settings.cloudflare_zone_id, settings.cloudflare_api_token_file
+        )
+    if app.state.cloudflare is not None:  # signs new certificates while it's the chosen check
+        app.state.client_certs.cloudflare = app.state.cloudflare
+        app.state.client_certs.use_cloudflare = lambda: (
+            app.state.remote_access.state().mode == "cloudflare"
+        )
     reloader = getattr(app.state, "tls_reloader", None)
     if reloader is not None:  # apply the setting now, and each change at once
         reloader.check(force=True)
@@ -125,8 +144,27 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         worker.cancel()
+        sweeper.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await worker
+        with contextlib.suppress(asyncio.CancelledError):
+            await sweeper
+
+
+REVOCATION_SWEEP_SECONDS = 300
+
+
+async def _sync_revocations(app: FastAPI) -> None:
+    """Pass revocations on to Cloudflare (ADR 0023), including those made by removing a
+    device or an account, and retry the ones it couldn't take."""
+    while True:
+        await asyncio.sleep(REVOCATION_SWEEP_SECONDS)
+        certs = getattr(app.state, "client_certs", None)
+        if certs is not None and certs.cloudflare is not None:
+            try:
+                await asyncio.to_thread(certs.sync_revocations)
+            except Exception:  # never stop the sweeper over one bad round
+                log.exception("Couldn't pass revocations on to Cloudflare")
 
 
 def _announce_setup_link(settings: Settings, token: str) -> None:
@@ -178,6 +216,7 @@ def create_app(
     runner: Runner | None = None,
     romfs: RomfsInspector | None = None,
     app_updates: AppUpdates | None = None,
+    cloudflare_issuer: cloudflare.CloudflareIssuer | None = None,
 ) -> FastAPI:
     """Build the app. Tests pass a fake ``runner`` and ``romfs``; production leaves them unset."""
     app = FastAPI(
@@ -194,6 +233,7 @@ def create_app(
     app.state.runner = runner
     app.state.romfs = romfs
     app.state.app_updates = app_updates
+    app.state.cloudflare = cloudflare_issuer
     app.state.login_limiter = auth.AttemptLimiter(**routes_auth.LOGIN_LIMIT)
     app.state.setup_limiter = auth.AttemptLimiter(**routes_auth.SETUP_LIMIT)
     app.state.passkey_start_limiter = auth.AttemptLimiter(**routes_auth.PASSKEY_START_LIMIT)

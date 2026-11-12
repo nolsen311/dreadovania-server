@@ -19,7 +19,7 @@ from typing import Any
 import uvicorn
 from fastapi import FastAPI
 
-from dreadovania import connection, tls
+from dreadovania import cloudflare, connection, tls
 from dreadovania.app import create_app
 from dreadovania.config import Settings
 
@@ -139,6 +139,12 @@ def main(argv: list[str] | None = None) -> None:
     settings = Settings()
     if args.command == "remote-access":
         sys.exit(_remote_access_off(settings))
+    try:
+        cloudflare.from_settings(settings.cloudflare_zone_id, settings.cloudflare_api_token_file)
+    except cloudflare.CloudflareError as exc:
+        logging.basicConfig()
+        log.error("The Cloudflare issuer can't start: %s", exc)
+        sys.exit(2)
     try:
         main_config, front = uvicorn_configs(settings)
     except tls.TlsError as exc:

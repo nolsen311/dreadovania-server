@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from dreadovania import accounts, auth, client_certs, devices, passkeys, remote_access
 from dreadovania.config import Settings
-from dreadovania.db import Database
+from dreadovania.db import Database, utc_now
 from dreadovania.problems import ApiProblem
 
 API_PREFIX = "/api/v1"
@@ -563,15 +563,41 @@ def list_devices(request: Request, user: CurrentUser) -> list[DeviceOut]:
     return [DeviceOut(**d) for d in devices.list_devices(_db(request), user.user_id)]
 
 
+class DeviceCertificateStatus(BaseModel):
+    sha256: str
+    issuer: str = Field(description="`builtin` or `cloudflare`.")
+    not_after: str
+    renew_after: str = Field(
+        description="When to ask for a replacement. Now, if the server has changed who"
+        " signs certificates (for example to Cloudflare) since this one was issued."
+    )
+
+
+class DeviceMe(DeviceOut):
+    certificate: DeviceCertificateStatus | None = Field(
+        description="This Switch's current client certificate (ADR 0023), if it has one."
+    )
+
+
 @protected.get("/devices/me", tags=["devices"])
-def current_device(request: Request, user: CurrentUser) -> DeviceOut:
-    """The device making this request (for the Switch app to check its pairing)."""
+def current_device(request: Request, user: CurrentUser) -> DeviceMe:
+    """The device making this request (for the Switch app to check its pairing, and
+    when to renew its certificate)."""
     found = (
         devices.get_device(_db(request), user.user_id, user.device_id) if user.device_id else None
     )
-    if found is None:
+    if found is None or user.device_id is None:
         raise ApiProblem(404, "Not a device", "this request isn't from a paired device")
-    return DeviceOut(**found)
+    certs = _certs(request)
+    cert = certs.current_for_device(user.user_id, user.device_id)
+    status_ = None
+    if cert is not None:
+        stale = cert["issuer"] != certs.current_issuer()
+        status_ = DeviceCertificateStatus(
+            sha256=cert["sha256"], issuer=cert["issuer"], not_after=cert["not_after"],
+            renew_after=utc_now() if stale else certs.renew_after(cert),
+        )  # fmt: skip
+    return DeviceMe(**found, certificate=status_)
 
 
 @protected.post("/devices/me/certificate", tags=["devices"])
@@ -875,6 +901,10 @@ class RemoteAccessOut(BaseModel):
         description="Where pairing and invites go when the server checks certificates itself."
     )
     cloudflare_expression: str = Field(description="The WAF custom rule to block with.")
+    cloudflare_configured: bool = Field(
+        description="Whether the server can have Cloudflare sign certificates."
+    )
+    issuer: str = Field(description="Who signs new certificates: `builtin` or `cloudflare`.")
 
 
 class RemoteAccessChange(BaseModel):

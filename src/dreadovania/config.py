@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     front_door_url: AnyHttpUrl | None = None
     # How long new client certificates last (ADR 0023 amendment). The app renews a
     # Switch's by itself; a browser's owner gets a banner 30 days before it expires.
+    # The Cloudflare issuer (ADR 0023): the zone of the proxied hostname, and a secret
+    # file with an API token that has only "SSL and Certificates Write" on that zone.
+    cloudflare_zone_id: str | None = None
+    cloudflare_api_token_file: Path | None = None
     device_certificate_days: int = Field(default=47, ge=1, le=398)
     browser_certificate_days: int = Field(default=365, ge=31, le=825)
 
