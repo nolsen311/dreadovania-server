@@ -142,6 +142,11 @@ work the same way as Caddy above:
 - **Allow long requests:** patching can take several minutes, but the page
   polls for progress, so the usual 60-second timeouts are fine.
 
+## Only your devices, from anywhere
+
+To put the server on the Internet so that only browsers, phones and Switches with a
+certificate from it get through, see [docs/remote-access.md](remote-access.md).
+
 ## Moving an existing server to a hostname
 
 1. Get the certificate working with one of the options above, and check that

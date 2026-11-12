@@ -213,6 +213,8 @@ differ, these apply.
     need a new certificate from the Account page.
   - Cloudflare mode can be turned on once the issuer is configured.
 - **The External issuer** (the owner's own CA) is still to come.
+- **Docs (part 5):** [docs/remote-access.md](../remote-access.md) has the steps for
+  each check, and the HAProxy and Cloudflare recipes.
 - **Until part 4:** a paired Switch can't connect while it's on, until the app
   presents its certificate.
 
