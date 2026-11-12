@@ -67,6 +67,27 @@
       you turn this on.</p>
     {% endif %}
   {% endif %}
+  {% if status.mode == "proxy" %}
+  <h3>Your own CA (optional)</h3>
+  <p class="muted"><small>If your proxy trusts your own CA (for example step-ca) as well as, or
+    instead of, this server's, give its certificate here. Certificates from it can then be added
+    on the Account page ("Add a certificate from your own CA"), and only ones it issued are
+    accepted. Revoking them at the proxy is your CA's job; revoking one here stops this server
+    accepting it.</small></p>
+  {% if external_ca %}
+    <p>Your CA: <code>{{ external_ca.subject }}</code>, until {{ external_ca.not_after[:10] }}.</p>
+    <form method="post" action="/account/remote-access" hx-post="/account/remote-access" hx-target="#messages">
+      <input type="hidden" name="action" value="external_ca_remove">
+      <button type="submit" class="danger">Forget this CA</button>
+    </form>
+  {% else %}
+    <form method="post" action="/account/remote-access" hx-post="/account/remote-access" hx-target="#messages" class="stack">
+      <input type="hidden" name="action" value="external_ca">
+      <label>CA certificate (PEM) <textarea name="ca" rows="6" required placeholder="-----BEGIN CERTIFICATE-----"></textarea></label>
+      <button type="submit">Use this CA</button>
+    </form>
+  {% endif %}
+  {% endif %}
   <p>Left open without a certificate:</p>
   <ul>{% for p in status.front_door %}<li><code>{{ p }}</code></li>{% endfor %}</ul>
 </section>

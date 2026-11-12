@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from cryptography import x509
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import pkcs12
@@ -86,6 +87,32 @@ def _write_public(path: Path, data: bytes) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_bytes(data)
     os.replace(tmp, path)
+
+
+MAX_UPLOAD = 64 * 1024
+
+
+def _load_certificate(data: bytes, password: str | None = None) -> x509.Certificate:
+    """A certificate from PEM, DER or a .p12. A .p12's key is dropped at once."""
+    if not data or len(data) > MAX_UPLOAD:
+        raise CertificateError("upload a certificate (.pem, .crt, .cer) or a .p12 file")
+    for load in (x509.load_pem_x509_certificate, x509.load_der_x509_certificate):
+        try:
+            return load(data)
+        except ValueError:
+            continue
+    try:
+        _key, cert, _extra = pkcs12.load_key_and_certificates(
+            data, password.encode() if password else None
+        )
+    except ValueError:
+        raise CertificateError(
+            "that isn't a certificate, or the .p12's password is wrong"
+        ) from None
+    del _key, _extra  # never kept: only the certificate is recorded
+    if cert is None:
+        raise CertificateError("that .p12 has no certificate in it")
+    return cert
 
 
 class ClientCertificates:
@@ -318,6 +345,96 @@ class ClientCertificates:
                 )
             done += 1
         return done
+
+    # ---- the External issuer: the owner's own CA (ADR 0023) ------------------------------
+
+    @property
+    def external_ca_path(self) -> Path:
+        return self.dir / "external-ca.pem"
+
+    def external_ca(self) -> x509.Certificate | None:
+        try:
+            return x509.load_pem_x509_certificate(self.external_ca_path.read_bytes())
+        except (OSError, ValueError):
+            return None
+
+    def set_external_ca(self, data: bytes | None) -> x509.Certificate | None:
+        """The owner's CA, so certificates it didn't issue are refused. None removes it."""
+        if data is None:
+            self.external_ca_path.unlink(missing_ok=True)
+            return None
+        ca = _load_certificate(data)
+        try:
+            is_ca = ca.extensions.get_extension_for_class(x509.BasicConstraints).value.ca
+        except x509.ExtensionNotFound:
+            is_ca = False
+        if not is_ca:
+            raise CertificateError("that isn't a CA certificate (it has no CA basic constraint)")
+        self.dir.mkdir(parents=True, exist_ok=True)
+        _write_public(self.external_ca_path, ca.public_bytes(serialization.Encoding.PEM))
+        return ca
+
+    def record_external(
+        self,
+        owner_id: str,
+        data: bytes,
+        password: str | None,
+        name: str,
+        *,
+        device_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Record a certificate from the owner's own CA: only its fingerprint and dates.
+
+        ``data`` is the certificate (PEM or DER) or a .p12. A .p12 is opened in memory
+        for its certificate; the file, its private key and its password are not kept
+        and never written anywhere. The owner installs the certificate themselves.
+        """
+        cert = _load_certificate(data, password)
+        now = _now()
+        if cert.not_valid_after_utc <= now:
+            raise CertificateError("that certificate has expired")
+        try:
+            if cert.extensions.get_extension_for_class(x509.BasicConstraints).value.ca:
+                raise CertificateError("that's a CA certificate, not a device's or browser's")
+        except x509.ExtensionNotFound:
+            pass
+        try:
+            usages = cert.extensions.get_extension_for_class(x509.ExtendedKeyUsage).value
+            if ExtendedKeyUsageOID.CLIENT_AUTH not in usages:
+                raise CertificateError(
+                    "that certificate isn't for client authentication (no clientAuth usage)"
+                )
+        except x509.ExtensionNotFound:
+            pass  # no restriction: any use, client authentication included
+        ca = self.external_ca()
+        if ca is not None:
+            try:
+                cert.verify_directly_issued_by(ca)
+            except (ValueError, TypeError, InvalidSignature):
+                raise CertificateError("that certificate wasn't issued by your CA") from None
+        kind: Kind = "device" if device_id else "browser"
+        name = " ".join(name.split())[:MAX_NAME] or ("Switch" if device_id else "Browser")
+        sha256 = cert.fingerprint(hashes.SHA256()).hex()
+        record = {
+            "id": new_id(), "owner_id": owner_id, "device_id": device_id, "kind": kind,
+            "name": name, "issuer": "external", "issuer_id": None,
+            "serial": format(cert.serial_number, "x"), "sha256": sha256,
+            "not_before": _iso(cert.not_valid_before_utc),
+            "not_after": _iso(cert.not_valid_after_utc), "created_at": utc_now(),
+        }  # fmt: skip
+        with self.db.connect() as conn:
+            if conn.execute(
+                "SELECT 1 FROM client_certificates WHERE sha256 = ?", (sha256,)
+            ).fetchone():
+                raise CertificateError("that certificate is already recorded")
+            conn.execute(
+                "INSERT INTO client_certificates (id, owner_id, device_id, kind, name, issuer,"
+                " issuer_id, serial, sha256, not_before, not_after, created_at)"
+                " VALUES (:id, :owner_id, :device_id, :kind, :name, :issuer, :issuer_id,"
+                " :serial, :sha256, :not_before, :not_after, :created_at)",
+                record,
+            )
+        return self._public(record | {"revoked_at": None, "replaced_by": None})
 
     # ---- the record ------------------------------------------------------------------
 

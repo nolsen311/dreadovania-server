@@ -636,7 +636,15 @@ def remote_access_page(request: Request) -> Response:
     return render(
         request, "remote_access.html", user=user, status=remote_access_status(request),
         without_certificate=[a["username"] for a in everyone if a["id"] in missing],
+        external_ca=_external_ca(request),
     )  # fmt: skip
+
+
+def _external_ca(request: Request) -> dict[str, str] | None:
+    ca = request.app.state.client_certs.external_ca()
+    if ca is None:
+        return None
+    return {"subject": ca.subject.rfc4514_string(), "not_after": ca.not_valid_after_utc.isoformat()}
 
 
 @router.post("/account/remote-access")
@@ -648,6 +656,16 @@ async def remote_access_submit(request: Request) -> Response:
     check_forwarded = form.get("check_forwarded") == "on"
     state = request.app.state.remote_access.state()
     try:
+        certs: client_certs.ClientCertificates = request.app.state.client_certs
+        if action == "external_ca":
+            try:
+                certs.set_external_ca(form.get("ca", "").strip().encode())
+            except client_certs.CertificateError as exc:
+                return render(request, "_error.html", message=str(exc))
+            return go(request, "/account/remote-access")
+        if action == "external_ca_remove":
+            certs.set_external_ca(None)
+            return go(request, "/account/remote-access")
         if action == "choose" and state.enabled:
             return render(request, "_error.html", message="turn it off before changing who checks")
         if action == "choose":

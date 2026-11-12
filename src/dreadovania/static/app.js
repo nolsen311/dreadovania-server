@@ -90,6 +90,42 @@ document.addEventListener("DOMContentLoaded", () => {
   // htmx doesn't show failed requests by default, so a refused action (for
   // example a cross-site check after opening the server at another address)
   // looked like nothing happening. Show the server's explanation instead.
+  // A certificate from the owner's own CA (ADR 0023): read the file here and send it
+  // to the API as base64; the server keeps only its fingerprint.
+  const external = document.getElementById("external-certificate");
+  if (external) {
+    external.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = new FormData(external);
+      const file = form.get("file");
+      if (!file || !file.size) return;
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = "";
+      for (const b of bytes) binary += String.fromCharCode(b);
+      const response = await fetch("/api/v1/certificates/external", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          certificate: btoa(binary),
+          password: form.get("password") || null,
+          name: form.get("name") || "",
+          device_id: form.get("device_id") || null,
+        }),
+      });
+      if (response.ok) {
+        location.reload();
+        return;
+      }
+      const problem = await response.json().catch(() => ({}));
+      const messages = document.getElementById("messages");
+      messages.innerHTML = "";
+      const p = document.createElement("p");
+      p.className = "error";
+      p.textContent = problem.detail || problem.title || "That certificate wasn't added.";
+      messages.append(p);
+    });
+  }
+
   document.body.addEventListener("htmx:responseError", (event) => {
     const xhr = event.detail.xhr;
     let problem = {};
