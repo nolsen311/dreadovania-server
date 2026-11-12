@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import re
 import socket
 import ssl
 import threading
@@ -21,6 +22,7 @@ from conftest import make_user
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.serialization import pkcs12
 from fastapi.testclient import TestClient
+from pydantic import AnyHttpUrl
 from test_accounts import as_member, invite
 from test_api import ORIGIN, H, use_session
 from test_tls import HOST, client_context, free_port, make_pair
@@ -567,3 +569,23 @@ def test_certificate_lifetimes_are_configurable(tmp_path: Path, fake_runner) -> 
         ).days
 
     assert (days(browser), days(device)) == (90, 30)
+
+
+def test_behind_cloudflare_switches_pair_through_the_front_door_url(client: TestClient) -> None:
+    def pairing_address() -> str:
+        return client.post("/account/devices/code", headers={**H, "HX-Request": "true"}).text
+
+    assert ORIGIN in pairing_address()
+    r = client.put("/api/v1/remote-access", json={"enabled": False, "mode": "proxy"}, headers=H)
+    assert r.status_code == 200
+    assert ORIGIN in pairing_address()  # no front-door URL set: the public URL
+    settings = client.app.state.settings
+    client.app.state.settings = settings.model_copy(
+        update={"front_door_url": AnyHttpUrl("https://pair.dread.test")}
+    )
+    html = pairing_address()
+    assert "<code>https://pair.dread.test</code>" in html
+    # Pairing still answers with the main address, which the app keeps.
+    code = re.search(r'class="pairing-code"[^>]*>([^<]+)<', html).group(1)  # type: ignore[union-attr]
+    r = client.post("/api/v1/devices/pair", json={"code": code, "name": "Switch"})
+    assert r.status_code == 201 and r.json()["server_url"] == ORIGIN

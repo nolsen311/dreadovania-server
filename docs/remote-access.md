@@ -185,14 +185,49 @@ certificates from its own CA, so the server asks Cloudflare to sign them.
    origin-pull CA and `verify required` on the `bind` Cloudflare connects to).
    Without this, someone who finds your origin's address can go around Cloudflare's
    check.
-5. **Certificates you already made in Cloudflare's dashboard** can be added on the
+5. **A pairing hostname for Switches.** A Switch can't pair through a hostname on
+   the mTLS list: Cloudflare asks it for a client certificate during the
+   handshake, before it has one, and the Switch's TLS service gives up (the app
+   says "the server asked for a client certificate"). Once paired, it has a
+   certificate and works through mTLS. So Switches pair through a second hostname
+   that never asks:
+   1. **DNS:** add a proxied record, for example `dreadovania-pairing`, pointing
+      where your main hostname points.
+   2. **Not** under **SSL/TLS → Client Certificates**, and not in the WAF rule's
+      hostnames either: no request there has a verified certificate.
+   3. **A WAF rule that blocks everything else on it,** first in the list,
+      action **Block**:
+
+      ```
+      (http.host eq "dreadovania-pairing.example.com" and http.request.uri.path ne "/api/v1/devices/pair")
+      ```
+
+   4. **No challenge on the pairing path.** A Switch can't solve one. If you
+      have a rule that skips the front door's challenges (Security Level, Browser
+      Integrity Check), add the pairing hostname to it; Cloudflare's 403 with a
+      `cf-mitigated: challenge` header means one is still in the way.
+   5. **Your reverse proxy** sends that hostname to Dreadovania, and nothing else.
+      With **Full (strict)**, the origin's certificate must cover it too.
+   6. **On the server,** set `DREADOVANIA_FRONT_DOOR_URL` to it, for example
+      `https://dreadovania-pairing.example.com`. The Account page then gives that
+      address with each pairing code. The app keeps the main address the server
+      returns when it pairs, and uses that from then on.
+
+   Check it: the pairing path answers with the server's own 422, and anything
+   else with Cloudflare's 403.
+
+   ```bash
+   for p in /api/v1/devices/pair /api/v1/seeds /; do printf "%s " "$p"; curl -s -o /dev/null -w "%{http_code}\n" -X POST "https://dreadovania-pairing.example.com$p"; done
+   ```
+
+6. **Certificates you already made in Cloudflare's dashboard** can be added on the
    Account page under **Add a certificate from your own CA** (the certificate, or its
    `.p12` with the password). The server finds it among the zone's client
    certificates by its fingerprint and records it as Cloudflare's, so revoking it on
    the Account page revokes it at Cloudflare too. While Cloudflare checks, a
    certificate that isn't one of the zone's is refused, since Cloudflare wouldn't let
    it in.
-6. **Decide whether the server checks too.** Cloudflare ends TLS, so the client's
+7. **Decide whether the server checks too.** Cloudflare ends TLS, so the client's
    certificate stops at Cloudflare: the server only knows which one was used if
    it's passed on in a header. Under **Account → Secure remote access**, the box
    **Behind a proxy or Cloudflare, also check the certificate it passes on** sets
@@ -219,13 +254,13 @@ certificates from its own CA, so the server asks Cloudflare to sign them.
      the certificate there is Cloudflare's own, so they would replace your
      browser's fingerprint with Cloudflare's. The settings page says whether a
      request carried the header.
-7. **In the server**, under **Account → Secure remote access**: choose **Cloudflare**.
+8. **In the server**, under **Account → Secure remote access**: choose **Cloudflare**.
    From then on new certificates come from Cloudflare. Certificates from the
    server's own CA don't get through Cloudflare, so add a new one for each browser
    and phone. Let each Switch renew before you turn it on: open the app once on
    each, and it fetches a Cloudflare certificate by itself. A Switch that missed
-   this can't renew through Cloudflare afterwards; pair it again instead (pairing
-   always works). Then turn it on.
+   this can't renew through Cloudflare afterwards; pair it again instead, through
+   the pairing hostname (step 5). Then turn it on.
 
 The dashboard's menu names change from time to time; if one isn't where this says,
 search Cloudflare's docs for "mTLS" and "Authenticated Origin Pulls".

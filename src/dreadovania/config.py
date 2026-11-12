@@ -42,7 +42,9 @@ class Settings(BaseSettings):
     front_door_port: int = Field(default=8081, ge=0, le=65535)
     # The front door's address as devices reach it, when the port is mapped to
     # another one (e.g. https://dread.example.com:8443). Defaults to the public
-    # URL with front_door_port.
+    # URL with front_door_port. Behind a proxy or Cloudflare, it's the hostname
+    # Switches pair through, one that doesn't ask for a client certificate
+    # (docs/remote-access.md).
     front_door_url: AnyHttpUrl | None = None
     # How long new client certificates last (ADR 0023 amendment). The app renews a
     # Switch's by itself; a browser's owner gets a banner 30 days before it expires.
