@@ -32,22 +32,24 @@
 {% endfor %}
 
 <h2>Add a Switch</h2>
+{# Not a login form: every field opts out of autofill, or password managers put a
+   saved username in the last text field before the password (the port). #}
 <form method="post" action="/switches" hx-post="/switches" hx-target="#messages" class="card stack" autocomplete="off">
   <label>Name
-    <input name="name" maxlength="60" required placeholder="Living room Switch">
+    <input name="name" maxlength="60" required placeholder="Living room Switch" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">
   </label>
   <label>Address <small>(shown at the top of ftpd, for example 192.168.1.50)</small>
-    <input name="host" maxlength="253" required inputmode="url" autocapitalize="off" spellcheck="false">
+    <input name="host" maxlength="253" required inputmode="url" autocapitalize="off" spellcheck="false" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">
   </label>
   <label>Port <small>(ftpd uses 5000)</small>
-    <input name="port" class="short" inputmode="numeric" pattern="[0-9]*" maxlength="5" value="5000">
+    <input name="port" class="short" inputmode="numeric" pattern="[0-9]*" maxlength="5" value="5000" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">
   </label>
   <details>
     <summary>Login (only if you set one in ftpd)</summary>
     <div class="stack">
-      <label>Username <input name="username" maxlength="128" autocomplete="off" autocapitalize="off"></label>
+      <label>Username <input name="username" maxlength="128" autocomplete="off" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other"></label>
       <label>Password <small>(saved on the server, never shown again)</small>
-        <input name="password" type="password" maxlength="128" autocomplete="new-password"></label>
+        <input name="password" type="password" maxlength="128" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other"></label>
     </div>
   </details>
   <button type="submit" class="primary">Add Switch</button>
