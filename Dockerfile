@@ -60,10 +60,15 @@ RUN groupadd --system --gid 10001 dreadovania \
 COPY --from=build /app/.venv /app/.venv
 COPY LICENSE SOURCE.md /usr/share/doc/dreadovania/
 
+# The user has no home directory (/nonexistent, on a read-only filesystem), so
+# libraries that keep files under it get writable folders on /tmp instead:
+# sigstore keeps its trust root there when it checks an app update (ADR 0021).
 ENV PATH=/app/.venv/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DREADOVANIA_DATA_DIR=/data
+    DREADOVANIA_DATA_DIR=/data \
+    XDG_CACHE_HOME=/tmp/cache \
+    XDG_DATA_HOME=/tmp/share
 
 USER 10001:10001
 WORKDIR /data
