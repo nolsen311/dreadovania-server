@@ -31,3 +31,4 @@ supersedes the old one; don't rewrite history.
 | [0023](0023-secure-remote-access.md) | Secure remote access with client certificates | Proposed |
 | [0024](0024-signoff-stacked-pull-requests.md) | `/signoff` for stacked pull requests | Proposed |
 | [0025](0025-cosmetic-options.md) | Randovania's Dread cosmetic options, including separate save slots | Proposed |
+| [0026](0026-extra-mods.md) | Extra mods layered onto each seed | Proposed |
