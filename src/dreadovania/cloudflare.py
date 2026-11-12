@@ -125,11 +125,23 @@ def from_settings(zone_id: str | None, token_file: Any) -> CloudflareIssuer | No
             " or neither"
         )
     try:
-        token = token_file.read_text().strip()
+        # utf-8-sig drops the byte-order mark some editors (Notepad) put first.
+        token = token_file.read_text(encoding="utf-8-sig").strip()
     except OSError as exc:
         raise CloudflareError(
             f"the Cloudflare API token file can't be read ({exc.strerror})"
         ) from None
+    except UnicodeDecodeError:
+        raise CloudflareError("the Cloudflare API token file isn't text") from None
     if not token:
         raise CloudflareError("the Cloudflare API token file is empty")
+    # A token goes in an HTTP header: only printable ASCII, no spaces. Say which
+    # position is wrong, never the token itself.
+    for position, char in enumerate(token, start=1):
+        if not ("!" <= char <= "~"):
+            raise CloudflareError(
+                f"the Cloudflare API token file has a character that can't be in a token at"
+                f" position {position} (U+{ord(char):04X}): save it with only the token on"
+                " one line, as plain text"
+            )
     return CloudflareIssuer(zone_id.strip(), token)

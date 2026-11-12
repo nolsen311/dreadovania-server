@@ -151,6 +151,26 @@ def test_settings_need_both_the_zone_and_a_token_file(tmp_path: Path) -> None:
     assert cloudflare.from_settings(" zone-1 ", tmp_path / "token").zone_id == "zone-1"
 
 
+def test_the_token_file_may_start_with_a_byte_order_mark(tmp_path: Path, monkeypatch) -> None:
+    """Seen live: Notepad saved the token with a BOM, which then broke the header."""
+    seen: list[str] = []
+    monkeypatch.setattr(cloudflare, "_http", lambda token: seen.append(token) or None)
+    (tmp_path / "token").write_bytes(b"\xef\xbb\xbfsecret-token\r\n")
+    cloudflare.from_settings("zone-1", tmp_path / "token")
+    assert seen == ["secret-token"]
+
+
+def test_a_token_that_cant_go_in_a_header_is_refused_without_showing_it(tmp_path: Path) -> None:
+    for content, position in [("secret token", 7), ("secret\u200btoken", 7), ("tökén", 2)]:
+        (tmp_path / "token").write_text(content, encoding="utf-8")
+        with pytest.raises(CloudflareError, match=f"at position {position} ") as raised:
+            cloudflare.from_settings("zone-1", tmp_path / "token")
+        assert "secret" not in str(raised.value) and "tök" not in str(raised.value)
+    (tmp_path / "token").write_bytes(b"\xff\xfe\x00binary")
+    with pytest.raises(CloudflareError, match="isn't text"):
+        cloudflare.from_settings("zone-1", tmp_path / "token")
+
+
 # ---- issuing and revoking ------------------------------------------------------------------
 
 

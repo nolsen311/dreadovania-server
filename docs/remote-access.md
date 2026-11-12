@@ -159,7 +159,8 @@ certificates from its own CA, so the server asks Cloudflare to sign them.
    [My Profile → API Tokens](https://dash.cloudflare.com/profile/api-tokens) and
    create a custom token with one permission, **Zone → SSL and Certificates →
    Edit**, for your zone only. Save it in a file on the server, readable only by the
-   server's user, and set:
+   server's user, with nothing in it but the token (a byte-order mark, which some
+   Windows editors add, is ignored), and set:
 
    ```yaml
        environment:
