@@ -86,6 +86,25 @@ def uses_front_door(request: Request) -> bool:
     return state.enabled and state.mode == "server"
 
 
+def pairing_origin(request: Request) -> str | None:
+    """The address a Switch pairs with. The front-door port when the server checks
+    certificates itself. Behind a proxy or Cloudflare, DREADOVANIA_FRONT_DOOR_URL
+    when it's set: the Switch's TLS service fails when asked for a client
+    certificate it doesn't have yet, so pairing there goes through a hostname
+    without mTLS. Otherwise the public URL."""
+    if uses_front_door(request):
+        return front_door_origin(request)
+    settings: Settings = request.app.state.settings
+    remote = getattr(request.app.state, "remote_access", None)
+    if (
+        settings.front_door_url is not None
+        and remote is not None
+        and remote.state().mode in ("proxy", "cloudflare")
+    ):
+        return auth.origin_of(str(settings.front_door_url))
+    return public_origin(request)
+
+
 def _client(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
