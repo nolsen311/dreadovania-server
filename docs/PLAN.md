@@ -19,7 +19,8 @@ Items marked **(verify)** are assumptions to confirm during the Phase 0 spike.
 | Games | Metroid Dread only, for generating and patching | [0001](adr/0001-dread-only.md) |
 | Randovania integration | CLI only (Phase 0 found no adapter needed); Randovania and the Dread patcher pinned together | [0002](adr/0002-randovania-integration.md), [0010](adr/0010-phase0-randovania-findings.md) |
 | Platforms | x86-64 first; arm64-ready with no rework; weekly arm64 test build; arm64 image blocked on `py-tegra-swizzle` wheels | [0003](adr/0003-x86-first-arm64-ready.md), [0010](adr/0010-phase0-randovania-findings.md) |
-| Users | Single user now; every record has an `owner_id` so accounts can be added later | [0004](adr/0004-auth.md) |
+| Users | Accounts: the admin invites others, each with their own seeds, presets and Switches | [0004](adr/0004-auth.md), [0020](adr/0020-accounts.md) |
+| Remote access | Optional: only clients with a certificate the server issued (or Cloudflare, or your own CA) get past a small front door | [0023](adr/0023-secure-remote-access.md) |
 | Sign-in | Setup wizard; passkeys and autofill-friendly password; device tokens for the NRO | [0004](adr/0004-auth.md) |
 | TLS | Bring-your-own cert files with hot reload; Let's Encrypt via DNS-01 recipes; no ACME in the app | [0005](adr/0005-tls-lets-encrypt.md) |
 | Switch delivery | Zip download and FTP push to `ftpd`; SimpleModManager-compatible library layout | [0006](adr/0006-switch-delivery.md) |
@@ -203,10 +204,8 @@ Still open:
 
 ## Later ideas (not scheduled)
 
-- **Accounts:** more than one user on a server (ADR 0004 is ready for it), so a
-  friend can pair their own Switch with their own account on your server, with
-  their own seeds. Today a second Switch pairs with the one account.
-- **Several servers in the Switch app:** remember each paired server and pick the
-  one for the current Wi-Fi network automatically (`dreadovania-nx`).
+Done since they were listed: **accounts** (ADR 0020), **several servers in the
+Switch app** (`dreadovania-nx` ADR 0010) and **secure remote access** (ADR 0023).
+
 - **Mods alongside seeds:** a library of other mods (e.g. suit colours) applied
   with each seed, once overlap between mods can be handled sensibly.
