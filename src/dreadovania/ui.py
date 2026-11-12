@@ -21,7 +21,16 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from dreadovania import accounts, auth, client_certs, devices, passkeys, rdv_presets, remote_access
+from dreadovania import (
+    __version__,
+    accounts,
+    auth,
+    client_certs,
+    devices,
+    passkeys,
+    rdv_presets,
+    remote_access,
+)
 from dreadovania.jobs import CannotPatch, CannotSend, QueueFull
 from dreadovania.problems import ApiProblem
 from dreadovania.rdv_presets import PresetProblem
@@ -51,6 +60,8 @@ from dreadovania.validation import InvalidInput
 HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=HERE / "templates")
 templates.env.filters["preset_text"] = rdv_presets.description_text
+# In static URLs, so a new release never runs with an old cached script.
+templates.env.globals["version"] = __version__
 router = APIRouter(include_in_schema=False)
 
 MAX_FORM_BYTES = 16 * 1024
@@ -599,6 +610,18 @@ def certificate_replace(request: Request) -> Response:
     return render(
         request, "_certificate_issued.html", certificate=issued.certificate,
         password=issued.password, token=token, minutes=DOWNLOAD_LIFETIME // 60, replacing=cert,
+    )  # fmt: skip
+
+
+@router.post("/account/certificates/external")
+async def certificate_external_fallback(request: Request) -> Response:
+    """The upload form without its script, which sends it to the API. Nothing it sent is
+    read or kept: the page only asks for a reload, which brings the current script."""
+    page_session(request)
+    return render(
+        request, "_error.html", status_code=400,
+        message="this page's script didn't run, so nothing was uploaded: reload the page"
+        " (Ctrl+Shift+R, or Cmd+Shift+R on a Mac) and try again",
     )  # fmt: skip
 
 

@@ -205,3 +205,19 @@ def test_the_pages(client: TestClient) -> None:
     r = client.post("/account/remote-access", headers=H, follow_redirects=False, data=form)
     assert r.status_code == 303
     assert "CN=Home CA" in client.get("/account/remote-access").text
+
+
+def test_the_form_never_sends_its_fields_in_an_address(client: TestClient) -> None:
+    """Seen live: with an old cached script, the form fell back to a GET, putting its
+    fields (the .p12's password among them) in the URL and the access log."""
+    page = client.get("/account").text
+    form = page.split('<form id="external-certificate"')[1].split(">")[0]
+    assert 'method="post"' in form and 'action="/account/certificates/external"' in form
+    from dreadovania import __version__
+
+    assert f'/static/app.js?v={__version__}"' in page  # a new release, a new script URL
+    r = client.post("/account/certificates/external", headers=H,
+                    data={"file": "phone.p12", "password": "hunter22", "name": "x"})  # fmt: skip
+    assert r.status_code == 400 and "reload the page" in r.text
+    assert "hunter22" not in r.text
+    assert client.get("/api/v1/certificates", headers=H).json() == []  # nothing uploaded
