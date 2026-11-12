@@ -41,11 +41,11 @@ from dreadovania.routes_auth import (
     SAFE_METHODS,
     change_remote_access,
     check_origin,
-    front_door_origin,
     invite_certificate,
     invite_url,
     main_origin,
     on_front_door,
+    pairing_origin,
     perform_accept_invite,
     perform_login,
     perform_logout,
@@ -53,7 +53,6 @@ from dreadovania.routes_auth import (
     presented_certificate,
     public_origin,
     remote_access_status,
-    uses_front_door,
 )
 from dreadovania.seeds import NoSpoiler, SeedBusy, SeedNotReady
 from dreadovania.switches import DEFAULT_PORT, SwitchError
@@ -895,10 +894,9 @@ async def member_remove(account_id: str, request: Request) -> Response:
 def device_code(request: Request) -> Response:
     user = page_session(request)
     code, _expires = devices.new_pairing_code(request.app.state.db, user.user_id)
-    door = uses_front_door(request)
     return render(
         request, "_pairing_code.html", code=code, minutes=int(devices.CODE_LIFETIME.seconds // 60),
-        server_url=front_door_origin(request) if door else public_origin(request),
+        server_url=pairing_origin(request),
     )  # fmt: skip
 
 
