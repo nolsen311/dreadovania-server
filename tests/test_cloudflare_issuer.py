@@ -49,9 +49,17 @@ class FakeCloudflare:
         assert path.startswith("/zones/zone-1/client_certificates")
         rest = path.removeprefix("/zones/zone-1/client_certificates")
         if method == "GET":
-            active = sum(c["status"] == "active" for c in self.certs.values())
-            return {"success": True, "errors": [], "messages": [], "result": [],
-                    "result_info": {"total_count": active + self.extra_active}}  # fmt: skip
+            query = dict(p.split("=") for p in rest.lstrip("?").split("&") if p)
+            per_page, page = int(query.get("per_page", 20)), int(query.get("page", 1))
+            if not 5 <= per_page <= 50:  # as Cloudflare's API description says
+                return {"success": False, "errors": [{"message": "per_page out of range"}]}
+            active = [{"id": i, "fingerprint_sha256": c["sha256"], "status": c["status"]}
+                      for i, c in self.certs.items() if c["status"] == "active"]  # fmt: skip
+            pages = max(1, -(-len(active) // per_page))
+            return {"success": True, "errors": [], "messages": [],
+                    "result": active[(page - 1) * per_page : page * per_page],
+                    "result_info": {"total_count": len(active) + self.extra_active,
+                                    "total_pages": pages}}  # fmt: skip
         if method == "DELETE":
             cert_id = rest.lstrip("/")
             self.certs[cert_id]["status"] = "pending_revocation"
@@ -68,13 +76,35 @@ class FakeCloudflare:
             .sign(self.key, hashes.SHA256())
         )  # fmt: skip
         cert_id = f"cf-{len(self.certs) + 1}"
-        self.certs[cert_id] = {"status": "active"}
+        self.certs[cert_id] = {
+            "status": "active",
+            "sha256": cert.fingerprint(hashes.SHA256()).hex(),
+        }
         return {"success": True, "errors": [], "messages": [], "result": {
             "id": cert_id, "status": "active",
             "certificate": cert.public_bytes(serialization.Encoding.PEM).decode(),
             "fingerprint_sha256": cert.fingerprint(hashes.SHA256()).hex(),
             "expires_on": cert.not_valid_after_utc.isoformat(),
         }}  # fmt: skip
+
+    def made_in_dashboard(self):
+        """A certificate created in Cloudflare's dashboard, not through the server."""
+        key = ec.generate_private_key(ec.SECP256R1())
+        now = datetime.now(UTC)
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "dash")]))
+            .issuer_name(self.name).public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now).not_valid_after(now + timedelta(days=365))
+            .sign(self.key, hashes.SHA256())
+        )  # fmt: skip
+        cert_id = f"cf-{len(self.certs) + 1}"
+        self.certs[cert_id] = {
+            "status": "active",
+            "sha256": cert.fingerprint(hashes.SHA256()).hex(),
+        }
+        return key, cert, cert_id
 
 
 @pytest.fixture
@@ -224,3 +254,35 @@ def test_without_cloudflare_settings_it_still_cant_be_turned_on(db, tmp_path) ->
     ra.choose("alice", "cloudflare", check_forwarded=False)
     with pytest.raises(Exception, match="DREADOVANIA_CLOUDFLARE_ZONE_ID"):
         ra.turn_on("alice", None, confirmed=True)
+
+
+# ---- certificates made in Cloudflare's dashboard -------------------------------------------
+
+
+def test_one_made_in_the_dashboard_is_recorded_as_cloudflares(certs, fake) -> None:
+    for _ in range(55):  # more than one page of the zone's certificates
+        fake.made_in_dashboard()
+    key, cert, cert_id = fake.made_in_dashboard()
+    p12 = pkcs12.serialize_key_and_certificates(
+        b"x", key, cert, None, serialization.BestAvailableEncryption(b"pw")
+    )
+    recorded = certs.record_external("alice", p12, "pw", "Laptop")
+    assert recorded["issuer"] == "cloudflare"
+    with certs.db.connect() as conn:
+        assert conn.execute("SELECT issuer_id FROM client_certificates").fetchone()[0] == cert_id
+    certs.revoke("alice", recorded["id"])  # revoking here revokes it at Cloudflare too
+    assert fake.certs[cert_id]["status"] == "pending_revocation"
+
+
+def test_with_cloudflare_checking_only_its_own_are_accepted(certs, fake) -> None:
+    from test_external_issuer import OwnCA
+
+    pem = OwnCA().client()[1].public_bytes(serialization.Encoding.PEM)
+    with pytest.raises(CertificateError, match="isn't one of this zone's"):
+        certs.record_external("alice", pem, None, "From my CA")
+    certs.use_cloudflare = lambda: False  # a proxy checks instead: the owner's CA is fine
+    assert certs.record_external("alice", pem, None, "From my CA")["issuer"] == "external"
+    fake.down = True
+    with pytest.raises(CertificateError, match="couldn't check it with Cloudflare"):
+        certs.record_external("alice", OwnCA().client()[1].public_bytes(
+            serialization.Encoding.PEM), None, "x")  # fmt: skip

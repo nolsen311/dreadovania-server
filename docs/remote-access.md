@@ -183,7 +183,14 @@ certificates from its own CA, so the server asks Cloudflare to sign them.
    origin-pull CA and `verify required` on the `bind` Cloudflare connects to).
    Without this, someone who finds your origin's address can go around Cloudflare's
    check.
-5. **In the server**, under **Account → Secure remote access**: choose **Cloudflare**.
+5. **Certificates you already made in Cloudflare's dashboard** can be added on the
+   Account page under **Add a certificate from your own CA** (the certificate, or its
+   `.p12` with the password). The server finds it among the zone's client
+   certificates by its fingerprint and records it as Cloudflare's, so revoking it on
+   the Account page revokes it at Cloudflare too. While Cloudflare checks, a
+   certificate that isn't one of the zone's is refused, since Cloudflare wouldn't let
+   it in.
+6. **In the server**, under **Account → Secure remote access**: choose **Cloudflare**.
    From then on new certificates come from Cloudflare. Certificates from the
    server's own CA don't get through Cloudflare, so add a new one for each browser
    and phone, and let each Switch renew (the app does it the next time it connects).
