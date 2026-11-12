@@ -31,6 +31,7 @@ from dreadovania.routes_auth import (
     change_remote_access,
     check_origin,
     front_door_origin,
+    invite_certificate,
     invite_url,
     main_origin,
     on_front_door,
@@ -514,27 +515,44 @@ DOWNLOAD_LIFETIME = 10 * 60  # seconds
 
 class OneTimeDownloads:
     """A new certificate's .p12, kept in memory until it's downloaded once, for a few
-    minutes at most. The server never writes it to disk (ADR 0023 §2)."""
+    minutes at most. The server never writes it to disk (ADR 0023 §2). For an invite,
+    its password waits here too, to be shown once on the welcome page."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._items: dict[str, tuple[float, str, bytes, str]] = {}
+        self._items: dict[str, dict[str, Any]] = {}
 
-    def add(self, owner_id: str, p12: bytes, name: str) -> str:
+    def add(self, owner_id: str, p12: bytes, name: str, password: str | None = None) -> str:
         token = secrets.token_urlsafe(24)
         now = time.monotonic()
         with self._lock:
-            self._items = {k: v for k, v in self._items.items() if v[0] > now}
-            self._items[token] = (now + DOWNLOAD_LIFETIME, owner_id, p12, name)
+            self._items = {k: v for k, v in self._items.items() if v["expires"] > now}
+            self._items[token] = {"expires": now + DOWNLOAD_LIFETIME, "owner": owner_id,
+                                  "p12": p12, "name": name, "password": password}  # fmt: skip
         return token
+
+    def _live(self, owner_id: str, token: str) -> dict[str, Any] | None:
+        item = self._items.get(token)
+        if item is None or item["owner"] != owner_id or item["expires"] <= time.monotonic():
+            return None
+        return item
 
     def take(self, owner_id: str, token: str) -> tuple[bytes, str] | None:
         with self._lock:
-            item = self._items.get(token)
-            if item is None or item[1] != owner_id or item[0] <= time.monotonic():
+            item = self._live(owner_id, token)
+            if item is None:
                 return None
             del self._items[token]
-        return item[2], item[3]
+        return item["p12"], item["name"]
+
+    def take_password(self, owner_id: str, token: str) -> str | None:
+        """The password, once; the download stays available."""
+        with self._lock:
+            item = self._live(owner_id, token)
+            if item is None:
+                return None
+            password, item["password"] = item["password"], None
+        return password
 
 
 def _filename(name: str) -> str:
@@ -611,7 +629,14 @@ def certificate_revoke(certificate_id: str, request: Request) -> Response:
 @router.get("/account/remote-access")
 def remote_access_page(request: Request) -> Response:
     user = admin_session(request)
-    return render(request, "remote_access.html", user=user, status=remote_access_status(request))
+    everyone = accounts.list_accounts(request.app.state.db, user.user_id)
+    missing = set(request.app.state.client_certs.without_browser_certificate(
+        [a["id"] for a in everyone]
+    ))  # fmt: skip
+    return render(
+        request, "remote_access.html", user=user, status=remote_access_status(request),
+        without_certificate=[a["username"] for a in everyone if a["id"] in missing],
+    )  # fmt: skip
 
 
 @router.post("/account/remote-access")
@@ -674,7 +699,61 @@ async def invite_submit(request: Request) -> Response:
         )  # fmt: skip
     except ApiProblem as problem:
         return render(request, "_error.html", message=problem.detail or problem.title)
-    return response
+    user_id = request.state.accepted_user_id
+    issued = invite_certificate(request, user_id)
+    if issued is None:
+        return response
+    # Secure remote access is on: the new member needs this browser's certificate before
+    # anything past the front door answers. The welcome page is on the front door too.
+    token = request.app.state.certificate_downloads.add(
+        user_id, issued.p12, issued.certificate["name"], password=issued.password
+    )
+    welcome = go(request, f"/invite/welcome/{token}")
+    for name, value in response.headers.items():
+        if name == "set-cookie":
+            welcome.headers.append(name, value)
+    return welcome
+
+
+def _invite_session(request: Request) -> auth.Session | None:
+    """The member who just joined, by their new session cookie (no Origin check: GET)."""
+    token = request.cookies.get("dreadovania_session")
+    return auth.resolve_session(request.app.state.db, token) if token else None
+
+
+@router.get("/invite/welcome/{token}")
+def invite_welcome(token: str, request: Request) -> Response:
+    user = _invite_session(request)
+    password = (
+        request.app.state.certificate_downloads.take_password(user.user_id, token) if user else None
+    )
+    if user is None or password is None:
+        return render(
+            request, "_error.html", status_code=404,
+            message="this page has been shown already or has expired: ask the server's owner"
+            " to add a certificate for you",
+        )  # fmt: skip
+    return render(
+        request, "invite_welcome.html", token=token, password=password,
+        minutes=DOWNLOAD_LIFETIME // 60, server_url=main_origin(request),
+    )  # fmt: skip
+
+
+@router.get("/invite/certificate/{token}")
+def invite_certificate_download(token: str, request: Request) -> Response:
+    user = _invite_session(request)
+    item = request.app.state.certificate_downloads.take(user.user_id, token) if user else None
+    if item is None:
+        return render(
+            request, "_error.html", status_code=404,
+            message="that download has been used or has expired",
+        )  # fmt: skip
+    p12, name = item
+    return Response(
+        p12, media_type="application/x-pkcs12",
+        headers={"Content-Disposition": f'attachment; filename="{_filename(name)}"',
+                 "Cache-Control": "no-store"},
+    )  # fmt: skip
 
 
 @router.post("/account/invites")

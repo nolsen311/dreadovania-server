@@ -158,6 +158,10 @@ def _device_session(request: Request, header: str) -> auth.Session:
     route = request.scope.get("route")
     if (request.method, getattr(route, "path", None)) not in devices.DEVICE_ROUTES:
         raise ApiProblem(403, "Not allowed for devices", "sign in to the web app to do this")
+    presented = presented_certificate(request)
+    if presented is not None and presented["device_id"] == device.id:
+        # The app connects with its renewed certificate: revoke the one it replaced.
+        _certs(request).confirm_renewal(device.owner_id, presented["id"])
     return auth.Session(
         user_id=device.owner_id, username=device.username, renewed=False, device_id=device.id
     )
@@ -468,12 +472,35 @@ class PairRequest(BaseModel):
     name: str = Field(default="", max_length=devices.MAX_NAME)
 
 
+class DeviceCertificate(BaseModel):
+    """A Switch's client certificate (ADR 0023): keep it with the token, present it on
+    every connection to this server, and ask for a new one after ``renew_after``.
+    The server keeps neither the private key nor the password."""
+
+    p12: str = Field(description="The certificate and its private key, as base64 PKCS#12.")
+    password: str
+    sha256: str = Field(description="The certificate's SHA-256 fingerprint, in hex.")
+    not_after: str
+    renew_after: str = Field(
+        description="When to ask for a replacement (POST /devices/me/certificate)."
+    )
+
+
 class Paired(BaseModel):
     """Keep ``token`` secret; send it as ``Authorization: Bearer <token>``. It is shown once."""
 
     device_id: str
     name: str
     token: str
+    certificate: DeviceCertificate | None = Field(
+        default=None,
+        description="This Switch's client certificate, for secure remote access (ADR 0023).",
+    )
+    server_url: str | None = Field(
+        default=None,
+        description="The server's main address. Pairing may have been through the front-door"
+        " address, which serves nothing else.",
+    )
 
 
 class DeviceOut(BaseModel):
@@ -514,7 +541,21 @@ def pair_device(body: PairRequest, request: Request) -> Paired:
     except devices.DeviceError as exc:
         limiter.record(client)
         raise ApiProblem(400, "Pairing failed", str(exc)) from None
-    return Paired(device_id=device.id, name=device.name, token=token)
+    # Always, so the Switch is ready whenever secure remote access is turned on.
+    issued = _certs(request).issue(device.owner_id, "device", device.name, device_id=device.id)
+    return Paired(
+        device_id=device.id, name=device.name, token=token,
+        certificate=_device_certificate(request, issued), server_url=main_origin(request),
+    )  # fmt: skip
+
+
+def _device_certificate(request: Request, issued: client_certs.Issued) -> DeviceCertificate:
+    cert = issued.certificate
+    return DeviceCertificate(
+        p12=base64.b64encode(issued.p12).decode("ascii"), password=issued.password,
+        sha256=cert["sha256"], not_after=cert["not_after"],
+        renew_after=_certs(request).renew_after(cert),
+    )  # fmt: skip
 
 
 @protected.get("/devices", tags=["devices"])
@@ -531,6 +572,27 @@ def current_device(request: Request, user: CurrentUser) -> DeviceOut:
     if found is None:
         raise ApiProblem(404, "Not a device", "this request isn't from a paired device")
     return DeviceOut(**found)
+
+
+@protected.post("/devices/me/certificate", tags=["devices"])
+def renew_device_certificate(request: Request, user: CurrentUser) -> DeviceCertificate:
+    """A new client certificate for this Switch (ADR 0023). Called by the app once
+    ``renew_after`` has passed, or to get a first one if it was paired before them.
+    The current certificate keeps working until the app connects with the new one;
+    it is then revoked."""
+    if user.device_id is None:  # pragma: no cover - only device tokens reach this route
+        raise ApiProblem(403, "Devices only", "this is for the Switch app")
+    certs = _certs(request)
+    current = certs.current_for_device(user.user_id, user.device_id)
+    if current is None:
+        name = next(
+            (d["name"] for d in devices.list_devices(_db(request), user.user_id)
+             if d["id"] == user.device_id), "Switch",
+        )  # fmt: skip
+        issued = certs.issue(user.user_id, "device", name, device_id=user.device_id)
+    else:
+        issued = certs.renew(user.user_id, current["id"])
+    return _device_certificate(request, issued)
 
 
 @protected.delete("/devices/me", status_code=status.HTTP_204_NO_CONTENT, tags=["devices"])
@@ -626,15 +688,40 @@ def perform_accept_invite(
     except (accounts.AccountError, auth.AuthError) as exc:
         raise ApiProblem(400, "Account not created", str(exc)) from None
     _set_session_cookie(response, auth.create_session(db, user_id), origin)
+    request.state.accepted_user_id = user_id
     return username
 
 
-@public.post("/invites/accept", status_code=status.HTTP_201_CREATED, tags=["accounts"])
-def accept_invite(body: AcceptInvite, request: Request, response: Response) -> SignedIn:
-    """Create an account with an invite link's token, and sign in to it."""
-    return SignedIn(
-        username=perform_accept_invite(request, response, body.token, body.username, body.password)
+class InviteAccepted(SignedIn):
+    certificate: CertificateIssued | None = Field(
+        default=None,
+        description="While secure remote access is on: a client certificate for this browser"
+        " or phone, shown only now (ADR 0023). Install it to reach the rest of the server.",
     )
+
+
+def invite_certificate(request: Request, user_id: str) -> client_certs.Issued | None:
+    """A new member's first browser certificate, while secure remote access is on:
+    without one they couldn't get past the front door they joined through."""
+    remote = getattr(request.app.state, "remote_access", None)
+    if remote is None or not remote.state().enabled:
+        return None
+    return _certs(request).issue(user_id, "browser", "First browser")
+
+
+@public.post("/invites/accept", status_code=status.HTTP_201_CREATED, tags=["accounts"])
+def accept_invite(body: AcceptInvite, request: Request, response: Response) -> InviteAccepted:
+    """Create an account with an invite link's token, and sign in to it. While secure
+    remote access is on, the response also carries the new browser's certificate."""
+    username = perform_accept_invite(request, response, body.token, body.username, body.password)
+    issued = invite_certificate(request, request.state.accepted_user_id)
+    return InviteAccepted(
+        username=username,
+        certificate=CertificateIssued(
+            certificate=_cert_out(issued.certificate),
+            p12=base64.b64encode(issued.p12).decode("ascii"), password=issued.password,
+        ) if issued else None,
+    )  # fmt: skip
 
 
 @protected.get("/invites", tags=["accounts"])

@@ -180,9 +180,24 @@ differ, these apply.
   reach it when the port is remapped; invite links and the pairing address use
   it while secure remote access is on), `DREADOVANIA_DEVICE_CERTIFICATE_DAYS`
   (47) and `DREADOVANIA_BROWSER_CERTIFICATE_DAYS` (365).
-- **Until part 3:** while it's on, a friend who joins by invite gets an account
-  but no certificate yet, and a paired Switch can't connect until the app
-  presents one (part 4).
+- **Part 3 (pairing and invites):**
+  - **Pairing always hands the Switch a certificate,** whether secure remote access
+    is on or not, so a Switch paired today is ready the day it's turned on. The
+    response also carries the server's main address (`server_url`), since pairing
+    may have been through the front door.
+  - **The app renews it** with `POST /api/v1/devices/me/certificate` once
+    `renew_after` (a third of the lifetime left) has passed. The same call gives a
+    Switch paired before certificates its first one. The old certificate is revoked
+    when the Switch first connects with the new one.
+  - **Accepting an invite while it's on** hands the new member's browser its
+    certificate: in the API's response, or on a welcome page on the front door with a
+    one-time download and the password shown once (`/invite/welcome/…` and
+    `/invite/certificate/…`, added to the front door). While it's off, members add
+    their own from the Account page.
+  - **The settings page names the accounts without a browser certificate** before
+    it's turned on, since they'd be locked out of the web UI.
+- **Until part 4:** a paired Switch can't connect while it's on, until the app
+  presents its certificate.
 
 ## Pull requests
 

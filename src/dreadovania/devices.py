@@ -37,6 +37,7 @@ LAST_USED_EVERY = timedelta(minutes=1)  # don't write on every request
 DEVICE_ROUTES = frozenset({
     ("GET", "/api/v1/devices/me"),
     ("DELETE", "/api/v1/devices/me"),
+    ("POST", "/api/v1/devices/me/certificate"),
     ("GET", "/api/v1/presets"),
     ("GET", "/api/v1/presets/{preset_id}"),
     ("GET", "/api/v1/seeds"),

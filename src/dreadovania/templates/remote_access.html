@@ -72,6 +72,15 @@
       <button type="submit" class="danger">Turn off</button>
     </form>
   {% else %}
+    {% if without_certificate %}
+    <div class="warnings">
+      <p><strong>Without a browser certificate yet:</strong> {{ without_certificate | join(", ") }}.
+        Once this is on, they can't reach the server from a browser until they have one, so ask
+        them to add one on their Account page first.</p>
+    </div>
+    {% endif %}
+    <p class="muted"><small>A paired Switch gets its own certificate from the server, and needs
+      an app version that presents it.</small></p>
     <ol>
       <li>On the <a href="/account#certificates">Account page</a>, add a certificate for this
         browser, and install it.</li>
