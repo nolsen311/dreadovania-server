@@ -253,6 +253,34 @@ class ClientCertificates:
             ).fetchall()
         return [self._public(dict(r)) for r in rows]
 
+    def current_for_device(self, owner_id: str, device_id: str) -> dict[str, Any] | None:
+        """A paired Switch's newest live certificate, or None."""
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM client_certificates WHERE owner_id = ? AND device_id = ?"
+                " AND revoked_at IS NULL ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                (owner_id, device_id),
+            ).fetchone()
+        return self._public(dict(row)) if row else None
+
+    def without_browser_certificate(self, user_ids: list[str]) -> list[str]:
+        """Which of these accounts have no live browser certificate."""
+        with self.db.connect() as conn:
+            have = {
+                r["owner_id"]
+                for r in conn.execute(
+                    "SELECT DISTINCT owner_id FROM client_certificates"
+                    " WHERE kind = 'browser' AND revoked_at IS NULL AND not_after > ?",
+                    (_iso(_now()),),
+                )
+            }
+        return [u for u in user_ids if u not in have]
+
+    def renew_after(self, cert: dict[str, Any]) -> str:
+        """When the app should ask for a replacement: once a third of the lifetime is left."""
+        start, end = _parse(cert["not_before"]), _parse(cert["not_after"])
+        return _iso(end - (end - start) / 3)
+
     def get(self, owner_id: str, cert_id: str) -> dict[str, Any] | None:
         with self.db.connect() as conn:
             row = conn.execute(

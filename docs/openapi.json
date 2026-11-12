@@ -261,6 +261,43 @@
         "title": "ConnectionTest",
         "type": "object"
       },
+      "DeviceCertificate": {
+        "description": "A Switch's client certificate (ADR 0023): keep it with the token, present it on\nevery connection to this server, and ask for a new one after ``renew_after``.\nThe server keeps neither the private key nor the password.",
+        "properties": {
+          "not_after": {
+            "title": "Not After",
+            "type": "string"
+          },
+          "p12": {
+            "description": "The certificate and its private key, as base64 PKCS#12.",
+            "title": "P12",
+            "type": "string"
+          },
+          "password": {
+            "title": "Password",
+            "type": "string"
+          },
+          "renew_after": {
+            "description": "When to ask for a replacement (POST /devices/me/certificate).",
+            "title": "Renew After",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "The certificate's SHA-256 fingerprint, in hex.",
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "p12",
+          "password",
+          "sha256",
+          "not_after",
+          "renew_after"
+        ],
+        "title": "DeviceCertificate",
+        "type": "object"
+      },
       "DeviceOut": {
         "properties": {
           "created_at": {
@@ -378,6 +415,30 @@
           "status"
         ],
         "title": "Health",
+        "type": "object"
+      },
+      "InviteAccepted": {
+        "properties": {
+          "certificate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CertificateIssued"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "While secure remote access is on: a client certificate for this browser or phone, shown only now (ADR 0023). Install it to reach the rest of the server."
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username"
+        ],
+        "title": "InviteAccepted",
         "type": "object"
       },
       "InviteCreated": {
@@ -756,6 +817,17 @@
       "Paired": {
         "description": "Keep ``token`` secret; send it as ``Authorization: Bearer <token>``. It is shown once.",
         "properties": {
+          "certificate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeviceCertificate"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "This Switch's client certificate, for secure remote access (ADR 0023)."
+          },
           "device_id": {
             "title": "Device Id",
             "type": "string"
@@ -763,6 +835,18 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "server_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The server's main address. Pairing may have been through the front-door address, which serves nothing else.",
+            "title": "Server Url"
           },
           "token": {
             "title": "Token",
@@ -2530,6 +2614,28 @@
         ]
       }
     },
+    "/api/v1/devices/me/certificate": {
+      "post": {
+        "description": "A new client certificate for this Switch (ADR 0023). Called by the app once\n``renew_after`` has passed, or to get a first one if it was paired before them.\nThe current certificate keeps working until the app connects with the new one;\nit is then revoked.",
+        "operationId": "renew_device_certificate_api_v1_devices_me_certificate_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceCertificate"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Renew Device Certificate",
+        "tags": [
+          "devices"
+        ]
+      }
+    },
     "/api/v1/devices/pair": {
       "post": {
         "description": "Exchange a pairing code for a device token. Called by the Switch app.",
@@ -2721,7 +2827,7 @@
     },
     "/api/v1/invites/accept": {
       "post": {
-        "description": "Create an account with an invite link's token, and sign in to it.",
+        "description": "Create an account with an invite link's token, and sign in to it. While secure\nremote access is on, the response also carries the new browser's certificate.",
         "operationId": "accept_invite_api_v1_invites_accept_post",
         "requestBody": {
           "content": {
@@ -2738,7 +2844,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SignedIn"
+                  "$ref": "#/components/schemas/InviteAccepted"
                 }
               }
             },

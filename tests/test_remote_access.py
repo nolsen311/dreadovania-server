@@ -216,8 +216,8 @@ class PeerApp:
         await self.app(scope, receive, send)
 
 
-@pytest.fixture
-def client(tmp_path: Path, fake_runner) -> Iterator[TestClient]:
+def peer_client(tmp_path: Path, fake_runner) -> Iterator[TestClient]:
+    """A set-up server whose requests carry the peer set with ``set_peer``."""
     settings = Settings(
         data_dir=tmp_path / "data", tls_cert_file=tmp_path / "unused.pem",
         tls_key_file=tmp_path / "unused.key",
@@ -234,6 +234,11 @@ def client(tmp_path: Path, fake_runner) -> Iterator[TestClient]:
         assert r.status_code == 201
         wrapped.state.remote_access.cache_seconds = 0
         yield c
+
+
+@pytest.fixture
+def client(tmp_path: Path, fake_runner) -> Iterator[TestClient]:
+    yield from peer_client(tmp_path, fake_runner)
 
 
 def set_peer(client: TestClient, peer: Peer | None) -> None:

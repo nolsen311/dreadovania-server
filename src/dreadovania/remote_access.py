@@ -62,7 +62,11 @@ FRONT_DOOR_PATHS: frozenset[tuple[str, str]] = frozenset({
     ("POST", "/invite"),
     ("POST", "/api/v1/invites/accept"),
 })  # fmt: skip
-FRONT_DOOR_PREFIXES = ("/static/",)  # the pages' stylesheet, scripts and icons
+FRONT_DOOR_PREFIXES = (
+    "/static/",  # the pages' stylesheet, scripts and icons
+    "/invite/welcome/",  # a new member's certificate, while it's on (one-time links)
+    "/invite/certificate/",
+)
 
 # Headers a trusted proxy may pass the client's certificate in.
 SHA256_HEADER = "x-ssl-client-sha256"  # HAProxy: %[ssl_c_der,sha2(256),hex]

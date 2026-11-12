@@ -1,0 +1,19 @@
+{# SPDX-License-Identifier: GPL-3.0-or-later #}
+{# A new member's first certificate, while secure remote access is on (ADR 0023). #}
+{% extends "base.html" %}
+{% block title %}Welcome · Dreadovania{% endblock %}
+{% block content %}
+<h1>Welcome</h1>
+<section class="card stack">
+  <p class="ok">Your account is ready.</p>
+  <p>This server only lets in browsers and phones with a certificate from it. Here is
+    yours for this browser or phone: install it, and you're in.</p>
+  <p><a class="button primary" href="/invite/certificate/{{ token }}" download>Download your certificate</a></p>
+  <p>Its password, needed once when you install it:</p>
+  <p class="pairing-code" aria-label="Certificate password">{{ password }}</p>
+  <p class="muted"><small>The download works once, for {{ minutes }} minutes, and the password is
+    shown only now. If you lose them, ask the server's owner, who can't see them either.</small></p>
+  {% include "_certificate_install.html" %}
+  {% if server_url %}<p>Then open <a href="{{ server_url }}/">{{ server_url }}</a>.</p>{% endif %}
+</section>
+{% endblock %}
