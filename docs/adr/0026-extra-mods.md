@@ -1,6 +1,6 @@
 # 0026. Extra mods layered onto each seed
 
-- Status: Proposed
+- Status: Proposed; Context and decisions 5 and 6 superseded by [0027](0027-suit-mods-measured.md)
 - Date: 2026-11-12
 - Takes up: [ADR 0016](0016-phase3-send-to-switch.md), "Later" (extra mods), and
   `docs/PLAN.md`'s "Mods alongside seeds"

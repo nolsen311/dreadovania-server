@@ -209,4 +209,5 @@ Done since they were listed: **accounts** (ADR 0020), **several servers in the
 Switch app** (`dreadovania-nx` ADR 0010) and **secure remote access** (ADR 0023).
 
 - **Mods alongside seeds:** a library of other mods (e.g. suit colours) applied
-  with each seed. Proposed in ADR 0026 (extra mods, layered on delivery).
+  with each seed. Proposed in ADR 0026 (extra mods, layered on delivery), refined
+  by ADR 0027 (what a suit mod replaces, measured, and a "suit only" choice).
