@@ -38,6 +38,12 @@ instead, `sha256:2a4a6a082d08a82ec2f83019da5b6c9914c616c199a76618930f8b5ca843c5d
 (linux/amd64). Later releases tag the signed digest itself, and the release
 workflow checks this before it finishes.
 
+**Platforms:** releases after ADR 0028 are one multi-arch image for linux/amd64 and
+linux/arm64. Verify and pin the index digest above. `cosign verify` covers each
+platform image too, since the release signs them all, and each platform image has
+its own SBOM attestation (`cosign verify-attestation --type spdxjson` on that
+platform's digest, listed in the release run's summary).
+
 ## Deployment guidance
 
 - Run the container with the hardening in [`compose.yaml`](compose.yaml).

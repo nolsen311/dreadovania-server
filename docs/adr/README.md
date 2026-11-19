@@ -8,7 +8,7 @@ supersedes the old one; don't rewrite history.
 |---|---|---|
 | [0001](0001-dread-only.md) | Support Metroid Dread only | Accepted |
 | [0002](0002-randovania-integration.md) | Integrate Randovania via its CLI, with one adapter module | Accepted |
-| [0003](0003-x86-first-arm64-ready.md) | x86-64 first, arm64-ready | Accepted |
+| [0003](0003-x86-first-arm64-ready.md) | x86-64 first, arm64-ready | Accepted; "amd64 only" superseded by 0028 |
 | [0004](0004-auth.md) | Single user now, multi-user-ready authentication | Accepted |
 | [0005](0005-tls-lets-encrypt.md) | TLS via user-supplied certificates and Let's Encrypt DNS-01 | Accepted |
 | [0006](0006-switch-delivery.md) | Switch delivery: zip, FTP push, SimpleModManager-compatible layout | Accepted |
@@ -33,3 +33,4 @@ supersedes the old one; don't rewrite history.
 | [0025](0025-cosmetic-options.md) | Randovania's Dread cosmetic options, including separate save slots | Proposed |
 | [0026](0026-extra-mods.md) | Extra mods layered onto each seed | Proposed; Context and decisions 5–6 superseded by 0027 |
 | [0027](0027-suit-mods-measured.md) | Extra mods, measured: what a suit-colour mod replaces, and a "suit only" choice | Proposed |
+| [0028](0028-publish-arm64.md) | Publish arm64 images: build py-tegra-swizzle from source, each platform natively | Proposed |

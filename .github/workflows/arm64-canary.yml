@@ -1,8 +1,11 @@
 name: arm64 test build
 
 # Weekly, non-blocking check that the project still builds and runs on arm64
-# (ADR 0003). Publishes nothing. On failure it opens (or comments on) a tracking
-# issue; when the build passes again it closes that issue.
+# (ADR 0003), between PRs: it catches drift from upstream, such as a base image or
+# package update, while PRs run "Container image (arm64)" in CI (ADR 0028).
+# Publishes nothing. On failure it opens (or comments on) a tracking issue; when
+# the build passes again it closes that issue. Only runs on main report: a run
+# started by hand on a branch says nothing about main.
 on:
   schedule:
     - cron: "23 6 * * 1" # Mondays 06:23 UTC
@@ -62,7 +65,7 @@ jobs:
   report:
     name: Update tracking issue
     needs: build
-    if: always()
+    if: always() && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
       issues: write
@@ -97,7 +100,7 @@ jobs:
             }
 
             const body = `The weekly arm64 test build finished with \`${result}\`: ${runUrl}\n\n` +
-              "This doesn't block PRs or releases, but should be fixed before arm64 images are published (ADR 0003).";
+              "Published images include arm64 (ADR 0028): fix this before the next release.";
             if (existing) {
               await github.rest.issues.createComment({ ...context.repo, issue_number: existing.number, body });
             } else {

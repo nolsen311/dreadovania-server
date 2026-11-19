@@ -4,6 +4,11 @@ name: Release
 # build cache (so nothing from a PR run can influence a published image).
 # Tags created by "/release" (ADR 0014, 0015) start it too: the release app's
 # token triggers "push" like a tag you push yourself.
+#
+# Each platform is built natively, in parallel (ADR 0028): amd64 on an x86 runner,
+# arm64 on an arm64 runner, so arm64 compiles its Rust dependency without
+# emulation. Each is pushed untagged and scanned on its own; only then are they
+# combined into one multi-arch image, tagged, signed and attested.
 on:
   push:
     tags: ["v*.*.*"]
@@ -16,24 +21,18 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
-  # Adding arm64 is this one line (ADR 0003): "linux/amd64,linux/arm64".
-  PLATFORMS: linux/amd64
   GRYPE_VERSION: "v0.121.2"
   COSIGN_VERSION: "v3.1.4"
 
 jobs:
-  release:
-    name: Build, scan, sign and publish
+  # The one approval: nothing is built or pushed until the release environment's
+  # protection rules (e.g. a required reviewer) are satisfied.
+  approve:
+    name: Approve the release
     runs-on: ubuntu-24.04
-    # A GitHub environment lets you add protection rules (e.g. required reviewer).
     environment: release
     permissions:
       contents: read
-      packages: write      # push to GHCR
-      id-token: write      # keyless signing and attestations (Sigstore OIDC)
-      attestations: write  # GitHub build-provenance attestation
-    outputs:
-      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
@@ -51,7 +50,125 @@ jobs:
             exit 1
           fi
 
-      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+  build:
+    name: Build and scan (${{ matrix.arch }})
+    needs: approve
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write  # push the untagged platform image to GHCR
+    steps:
+      # harden-runner's arm64 support isn't confirmed yet (as in ci.yml).
+      - if: matrix.arch == 'amd64'
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+
+      # Push by digest only, with no cache. Nothing is tagged until both platforms
+      # have passed their scans.
+      - id: build
+        name: Build and push (untagged)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          sbom: false
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+
+      - uses: anchore/scan-action/download-grype@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        id: grype
+        with:
+          grype-version: ${{ env.GRYPE_VERSION }}
+
+      - name: Vulnerability scan (fail on fixable high or critical)
+        env:
+          GRYPE: ${{ steps.grype.outputs.cmd }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: '"${GRYPE}" "registry:${IMAGE}@${DIGEST}" --only-fixed --fail-on high'
+
+      - name: SBOM (SPDX, Syft)
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          format: spdx-json
+          output-file: sbom-${{ matrix.arch }}.spdx.json
+          artifact-name: sbom-${{ matrix.arch }}.spdx.json
+          upload-artifact: true
+          upload-release-assets: false
+
+      - name: Record the digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          case "${DIGEST}" in sha256:*) ;; *) echo "::error::unexpected digest '${DIGEST}'"; exit 1 ;; esac
+          mkdir -p digests
+          printf '%s\n' "${DIGEST}" > "digests/${ARCH}"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-${{ matrix.arch }}
+          path: digests/${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish, sign and attest
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write      # push the multi-arch index and its tags to GHCR
+      id-token: write      # keyless signing and attestations (Sigstore OIDC)
+      attestations: write  # GitHub build-provenance attestation
+    outputs:
+      digest: ${{ steps.index.outputs.digest }}
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: sbom-*
+          path: sboms
+          merge-multiple: true
+
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
@@ -69,100 +186,77 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
 
-      # Push by digest only. Nothing is tagged until the scan passes.
-      - id: build
-        name: Build and push (untagged)
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          platforms: ${{ env.PLATFORMS }}
-          labels: ${{ steps.meta.outputs.labels }}
-          provenance: false
-          sbom: false
-          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-
-      - uses: anchore/scan-action/download-grype@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
-        id: grype
-        with:
-          grype-version: ${{ env.GRYPE_VERSION }}
-
-      - name: Vulnerability scan every platform (fail on fixable high or critical)
+      # Both platform images passed their scans: combine them into one index and
+      # tag it. The tags then name exactly the index that is signed and attested.
+      - name: Create the multi-arch image and apply the tags
         env:
-          GRYPE: ${{ steps.grype.outputs.cmd }}
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: |
-          for platform in ${PLATFORMS//,/ }; do
-            echo "::group::grype ${platform}"
-            "${GRYPE}" "registry:${IMAGE}@${DIGEST}" --platform "${platform}" --only-fixed --fail-on high
-            echo "::endgroup::"
-          done
-
-      - name: SBOM (SPDX, Syft)
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
-        with:
-          image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
-          registry-username: ${{ github.actor }}
-          registry-password: ${{ secrets.GITHUB_TOKEN }}
-          format: spdx-json
-          output-file: sbom.spdx.json
-          upload-artifact: true
-          upload-release-assets: false
-
-      # The tags must point at exactly the digest that was scanned, signed and
-      # attested. With a single source, "imagetools create" would otherwise wrap
-      # the image in a new index with a different, unsigned digest (v0.1.0 was
-      # published that way), so ask for a carbon copy and then check every tag.
-      - name: Apply tags to the scanned digest
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
           TAGS: ${{ steps.meta.outputs.tags }}
         run: |
           args=()
           while IFS= read -r tag; do
             [ -n "${tag}" ] && args+=(--tag "${tag}")
           done <<< "${TAGS}"
-          docker buildx imagetools create --prefer-index=false "${args[@]}" "${IMAGE}@${DIGEST}"
+          docker buildx imagetools create "${args[@]}" \
+            "${IMAGE}@$(cat digests/amd64)" "${IMAGE}@$(cat digests/arm64)"
 
-      - name: Check every tag points at the signed digest
+      - id: index
+        name: Check every tag points at one index of exactly the scanned images
         env:
-          DIGEST: ${{ steps.build.outputs.digest }}
           TAGS: ${{ steps.meta.outputs.tags }}
         run: |
+          expected="$(sort digests/amd64 digests/arm64)"
+          index=""
           while IFS= read -r tag; do
             [ -n "${tag}" ] || continue
-            actual="sha256:$(docker buildx imagetools inspect --raw "${tag}" | sha256sum | cut -d' ' -f1)"
-            if [ "${actual}" != "${DIGEST}" ]; then
-              echo "::error::${tag} points at ${actual}, not the signed digest ${DIGEST}"
+            raw="$(docker buildx imagetools inspect --raw "${tag}")"
+            digest="sha256:$(printf '%s' "${raw}" | sha256sum | cut -d' ' -f1)"
+            listed="$(printf '%s' "${raw}" | jq -r '.manifests[].digest' | sort)"
+            if [ "${listed}" != "${expected}" ]; then
+              echo "::error::${tag} lists ${listed//$'\n'/ }, not the scanned ${expected//$'\n'/ }"
               exit 1
             fi
-            echo "${tag} -> ${actual}"
+            if [ -z "${index}" ]; then index="${digest}"; fi
+            if [ "${digest}" != "${index}" ]; then
+              echo "::error::${tag} points at ${digest}, not ${index}"
+              exit 1
+            fi
+            echo "${tag} -> ${digest}"
           done <<< "${TAGS}"
+          echo "digest=${index}" >> "${GITHUB_OUTPUT}"
 
       - name: Build provenance attestation (SLSA)
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ env.IMAGE }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.index.outputs.digest }}
           push-to-registry: true
 
       - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
         with:
           cosign-release: ${{ env.COSIGN_VERSION }}
 
-      - name: Sign image and attach SBOM attestation (keyless)
+      # --recursive signs the index and each platform image in it. Each platform's
+      # SBOM is attested on that platform's image.
+      - name: Sign the image and attach each platform's SBOM (keyless)
         env:
-          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGEST: ${{ steps.index.outputs.digest }}
         run: |
-          cosign sign --yes "${IMAGE}@${DIGEST}"
-          cosign attest --yes --type spdxjson --predicate sbom.spdx.json "${IMAGE}@${DIGEST}"
+          cosign sign --yes --recursive "${IMAGE}@${DIGEST}"
+          for arch in amd64 arm64; do
+            cosign attest --yes --type spdxjson --predicate "sboms/sbom-${arch}.spdx.json" \
+              "${IMAGE}@$(cat "digests/${arch}")"
+          done
 
       - name: Summary
         env:
-          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGEST: ${{ steps.index.outputs.digest }}
           TAGS: ${{ steps.meta.outputs.tags }}
         run: |
           {
             echo "## Published ${IMAGE}@${DIGEST}"
+            echo
+            echo "linux/amd64: \`$(cat digests/amd64)\`  "
+            echo "linux/arm64: \`$(cat digests/arm64)\`"
             echo
             echo "Tags:"
             echo '```'
@@ -182,7 +276,7 @@ jobs:
   # repository's code, so it is the only job that can write to the repository.
   notes:
     name: Release notes
-    needs: release
+    needs: publish
     runs-on: ubuntu-24.04
     permissions:
       contents: write  # create the GitHub Release for the existing tag
@@ -196,7 +290,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
-          DIGEST: ${{ needs.release.outputs.digest }}
+          DIGEST: ${{ needs.publish.outputs.digest }}
         run: |
           if gh release view "${TAG}" > /dev/null 2>&1; then
             echo "::notice::${TAG} already has a release; leaving it as it is"
