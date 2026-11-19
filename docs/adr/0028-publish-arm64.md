@@ -52,8 +52,8 @@ a test build on x86-64, with the build tools pinned below.
    - **In releases: no cache at all,** as before, so nothing from a PR run can
      reach a published image. Native builds keep releases fast without it.
 5. **CI builds and smoke-tests arm64 on every PR,** as "Container image (arm64)",
-   a required check like "Container image" (`.github/rulesets/protect-main.json`). The smoke test also loads the compiled
-   module and round-trips data through it. The weekly arm64 test build stays, to
+   a required check like "Container image" (`.github/rulesets/protect-main.json`).
+   The smoke test also loads the compiled module and round-trips data through it. The weekly arm64 test build stays, to
    catch upstream drift between PRs, and only runs on `main` report to its
    tracking issue.
 
