@@ -18,7 +18,7 @@ Items marked **(verify)** are assumptions to confirm during the Phase 0 spike.
 |---|---|---|
 | Games | Metroid Dread only, for generating and patching | [0001](adr/0001-dread-only.md) |
 | Randovania integration | CLI only (Phase 0 found no adapter needed); Randovania and the Dread patcher pinned together | [0002](adr/0002-randovania-integration.md), [0010](adr/0010-phase0-randovania-findings.md) |
-| Platforms | x86-64 first; arm64-ready with no rework; weekly arm64 test build; arm64 image blocked on `py-tegra-swizzle` wheels | [0003](adr/0003-x86-first-arm64-ready.md), [0010](adr/0010-phase0-randovania-findings.md) |
+| Platforms | amd64 and arm64 images, each built natively; arm64 compiles `py-tegra-swizzle` from source; weekly arm64 test build | [0003](adr/0003-x86-first-arm64-ready.md), [0010](adr/0010-phase0-randovania-findings.md), [0028](adr/0028-publish-arm64.md) |
 | Users | Accounts: the admin invites others, each with their own seeds, presets and Switches | [0004](adr/0004-auth.md), [0020](adr/0020-accounts.md) |
 | Remote access | Optional: only clients with a certificate the server issued (or Cloudflare, or your own CA) get past a small front door | [0023](adr/0023-secure-remote-access.md) |
 | Sign-in | Setup wizard; passkeys and autofill-friendly password; device tokens for the NRO | [0004](adr/0004-auth.md) |
@@ -161,7 +161,7 @@ Splitting the phases this way lets Phase 1 ship with zero copyrighted input.
 
 **Image**
 - Multi-stage build on Debian slim, pinned by digest.
-- Built with `docker buildx`; the target platforms are one variable.
+- Built with `docker buildx`, one native runner per platform (amd64, arm64; ADR 0028).
 - Scanned with Grype (from Anchore, which also makes the Syft SBOM tool) and fails on fixable high or
   critical findings. Releases push by digest, scan every platform, and only then apply tags.
 - The content guard (section 3) runs on every PR.
@@ -183,8 +183,8 @@ Resolved by Phase 0 (ADR 0010):
 
 - ~~Whether Randovania's CLI covers Dread export~~: it does; no adapter module needed.
 - ~~Qt/PySide6 headless requirements~~: none.
-- ~~Whether the Dread toolchain resolves for arm64~~: the lock resolves, but
-  `py-tegra-swizzle` has no aarch64 wheel, so the arm64 image is blocked (options in ADR 0010).
+- ~~Whether the Dread toolchain resolves for arm64~~: the lock resolves, and
+  `py-tegra-swizzle`, which has no aarch64 wheel, is built from source (ADR 0028).
 
 Resolved since:
 

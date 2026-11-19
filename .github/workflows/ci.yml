@@ -180,7 +180,7 @@ jobs:
           persist-credentials: false
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # CI builds the runner's native platform so the image can be loaded and run.
-      # arm64 is covered by .github/workflows/arm64-canary.yml.
+      # arm64 has its own job below, on a native arm64 runner.
       - name: Build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -193,30 +193,43 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Smoke test with production hardening
-        run: |
-          install -d -m 0777 "${RUNNER_TEMP}/data"
-          docker run -d --name smoke -p 8080:8080 \
-            --read-only --tmpfs /tmp --cap-drop ALL \
-            --security-opt no-new-privileges:true --pids-limit 256 --memory 2g \
-            -v "${RUNNER_TEMP}/data:/data" dreadovania:ci
-          for _ in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8080/healthz; then break; fi
-            sleep 1
-          done
-          echo
-          curl -fsS http://127.0.0.1:8080/api/v1/info
-          echo
-          test "$(docker exec smoke id -u)" = "10001"
-          if docker exec smoke touch /app/should-fail 2>/dev/null; then
-            echo "::error::root filesystem is writable"; exit 1
-          fi
-          # Randovania works inside the hardened image (ADR 0010): generate a
-          # Dread seed from the bundled starter preset, writing only to /data.
-          docker exec smoke sh -c 'python -m randovania layout generate-from-presets \
-            --file "$(python -c "import randovania, pathlib; print(pathlib.Path(randovania.__file__).parent / \"games/dread/presets/starter_preset.rdvpreset\")")" \
-            --seed-number 1 /data/smoke.rdvgame'
-          docker exec smoke test -s /data/smoke.rdvgame
-          docker rm -f smoke
+        run: scripts/smoke-test.sh dreadovania:ci
+      - uses: anchore/scan-action/download-grype@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        id: grype
+        with:
+          grype-version: ${{ env.GRYPE_VERSION }}
+      - name: Vulnerability scan (fail on fixable high or critical)
+        env:
+          GRYPE: ${{ steps.grype.outputs.cmd }}
+        run: '"${GRYPE}" docker:dreadovania:ci --only-fixed --fail-on high'
+
+  # The same build and checks on a native arm64 runner (ADR 0028). Separate from
+  # "Container image" so that required check keeps its name. Its layer cache has
+  # its own scope, so the two platforms don't evict each other's.
+  image-arm64:
+    name: Container image (arm64)
+    # harden-runner is omitted until its arm64 runner support is confirmed.
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/arm64
+          load: true
+          push: false
+          provenance: false
+          tags: dreadovania:ci
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,scope=arm64,mode=max
+      - name: Smoke test with production hardening
+        run: scripts/smoke-test.sh dreadovania:ci
       - uses: anchore/scan-action/download-grype@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
         id: grype
         with:

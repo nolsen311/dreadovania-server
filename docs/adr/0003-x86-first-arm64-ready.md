@@ -1,6 +1,6 @@
 # 0003. x86-64 first, arm64-ready
 
-- Status: Accepted
+- Status: Accepted; the first decision ("`linux/amd64` only") superseded by [0028](0028-publish-arm64.md)
 - Date: 2026-11-07
 
 ## Context
