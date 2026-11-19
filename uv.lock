@@ -16,6 +16,12 @@ required-markers = [
 
 [manifest]
 overrides = [{ name = "cryptography", specifier = ">=50" }]
+build-constraints = [
+    { name = "semantic-version", specifier = "==2.10.0" },
+    { name = "setuptools", specifier = "==84.2.1" },
+    { name = "setuptools-rust", specifier = "==1.13.0" },
+    { name = "setuptools-scm", specifier = "==9.2.2" },
+]
 
 [[package]]
 name = "aiofiles"

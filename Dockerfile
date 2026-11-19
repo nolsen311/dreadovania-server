@@ -18,8 +18,26 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /src
 
-# Dependencies first, so source changes don't invalidate this layer.
+# py-tegra-swizzle (through mercury-engine-data-structures) publishes no Linux arm64
+# wheel, so on arm64 it is compiled from its source package (ADR 0028). Rust comes
+# from Debian's signed archive, into this build stage only: the runtime image never
+# has it. Its crates are pinned by the package's Cargo.lock, and the Python build
+# tools by build-constraint-dependencies in pyproject.toml. amd64 uses the wheel.
+ARG TARGETARCH
+RUN --mount=type=cache,id=apt-cache-${TARGETARCH},target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=apt-lists-${TARGETARCH},target=/var/lib/apt/lists,sharing=locked \
+    if [ "${TARGETARCH}" = "arm64" ]; then \
+      rm -f /etc/apt/apt.conf.d/docker-clean \
+      && apt-get update \
+      && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cargo rustc gcc libc6-dev; \
+    fi
+
+# Dependencies first, so source changes don't invalidate this layer. uv's cache keeps
+# each wheel it compiles, keyed by the source package's hash, and Cargo's keeps the
+# crates it downloads: a rebuild on the same machine compiles nothing it compiled
+# before. Releases build without any cache (.github/workflows/release.yml).
 RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,id=cargo-registry,target=/root/.cargo/registry \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --locked --no-dev --no-install-project

@@ -42,6 +42,15 @@ build-backend = "uv_build"
 # ADR 0010. tests/test_randovania_cli.py fails once Randovania allows a fixed
 # version itself, so this override is removed as soon as it is unnecessary.
 override-dependencies = ["cryptography>=50"]
+# py-tegra-swizzle (through mercury-engine-data-structures) has no Linux arm64
+# wheel, so the arm64 image compiles it from its source package (ADR 0028). Pin
+# the tools that build it, which the lockfile doesn't cover.
+build-constraint-dependencies = [
+    "setuptools==84.2.1",
+    "setuptools-scm==9.2.2",
+    "setuptools-rust==1.13.0",
+    "semantic-version==2.10.0",
+]
 # Resolve for both platforms now so adding arm64 later needs no lockfile rework (ADR 0003).
 environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
