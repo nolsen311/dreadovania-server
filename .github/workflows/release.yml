@@ -184,7 +184,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
       # Both platform images passed their scans: combine them into one index and
       # tag it. The tags then name exactly the index that is signed and attested.
@@ -299,9 +299,11 @@ jobs:
           version="${TAG#v}"
           # Notes start from the previous version tag, whether or not it has a
           # release entry of its own.
-          previous="$(gh api --paginate "repos/${GH_REPO}/tags" --jq '.[].name' \
-            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-            | sort -V | awk -v tag="${TAG}" '$0 == tag { print last; exit } { last = $0 }')"
+          # Release candidates (ADR 0029) start from the last release too: the current
+          # tag joins the list of releases, and the line before it is the start.
+          previous="$( { gh api --paginate "repos/${GH_REPO}/tags" --jq '.[].name' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$'; printf '%s\n' "${TAG}"; } \
+            | sort -uV | awk -v tag="${TAG}" '$0 == tag { print last; exit } { last = $0 }')"
           {
             echo "## Container image"
             echo

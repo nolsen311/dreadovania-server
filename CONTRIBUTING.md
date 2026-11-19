@@ -95,6 +95,11 @@ follow-up pull request that adds an entry to
    from the pull requests merged since the previous version tag.
 5. Verify the image as `SECURITY.md` describes and deploy it by digest.
 
+**Release candidates** (ADR 0029): a version like `X.Y.Z-rc.N` goes through the
+same steps. Its image gets only its own tag (no `X.Y`, no `latest`) and its
+Releases entry is marked as a pre-release, so nothing that follows `latest`
+picks it up. Release `X.Y.Z` itself once the candidate has proved out.
+
 A version released before the workflow created release entries (0.1.1, 0.1.2)
 can be given one by hand, without creating a tag:
 

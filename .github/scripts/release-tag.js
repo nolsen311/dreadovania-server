@@ -14,7 +14,8 @@
 "use strict";
 
 const COMMAND = "/release";
-const VERSION = /^\d+\.\d+\.\d+$/;
+// A release (1.2.3) or a release candidate (1.2.3-rc.1), ADR 0029.
+const VERSION = /^\d+\.\d+\.\d+(-rc\.\d+)?$/;
 const OK_CONCLUSIONS = new Set(["success", "skipped", "neutral"]);
 
 /** Decide whether a comment event may trigger a release. Pure, for tests. */
@@ -48,7 +49,9 @@ function readVersion(text, file) {
     version = text.trim(); // a plain VERSION file
   }
   if (typeof version !== "string" || !VERSION.test(version)) {
-    throw new Error(`${file} doesn't hold a version like 1.2.3 (found ${JSON.stringify(version ?? null)})`);
+    throw new Error(
+      `${file} doesn't hold a version like 1.2.3 or 1.2.3-rc.1 (found ${JSON.stringify(version ?? null)})`,
+    );
   }
   return version;
 }
@@ -68,13 +71,15 @@ function tomlSectionValue(text, section, key) {
   return undefined;
 }
 
+// [major, minor, patch, rc]: a release sorts after all of its release candidates.
 function parseVersion(v) {
-  return v.split(".").map(Number);
+  const [core, rc] = v.split("-rc.");
+  return [...core.split(".").map(Number), rc === undefined ? Infinity : Number(rc)];
 }
 
 function compareVersions(a, b) {
   const [x, y] = [parseVersion(a), parseVersion(b)];
-  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i];
+  for (let i = 0; i < 4; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
   return 0;
 }
 
@@ -82,10 +87,12 @@ function compareVersions(a, b) {
 function checkVersion(version, tagNames) {
   const tag = `v${version}`;
   if (tagNames.includes(tag)) return `${tag} already exists: bump the version in a new pull request first`;
-  const released = tagNames.filter((t) => /^v\d+\.\d+\.\d+$/.test(t)).map((t) => t.slice(1));
-  const newest = released.sort(compareVersions).at(-1);
+  // Release candidates count too: 1.2.3-rc.2 can't follow 1.2.3-rc.3, and no
+  // candidate can follow its release.
+  const tagged = tagNames.filter((t) => t.startsWith("v") && VERSION.test(t.slice(1))).map((t) => t.slice(1));
+  const newest = tagged.sort(compareVersions).at(-1);
   if (newest && compareVersions(version, newest) <= 0) {
-    return `${tag} isn't newer than the latest release, v${newest}`;
+    return `${tag} isn't newer than the latest version tag, v${newest}`;
   }
   return null;
 }
