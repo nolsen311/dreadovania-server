@@ -76,6 +76,10 @@
             "integration_id": 15368
           },
           {
+            "context": "Container image (arm64)",
+            "integration_id": 15368
+          },
+          {
             "context": "CodeQL (python)",
             "integration_id": 15368
           },
