@@ -31,11 +31,12 @@ sign-off; `DCO audit` only accepts a line that starts with `Signed-off-by:`).
 | --- | --- |
 | `19c1fb8a1fcfc983a8c20398557e2ca787d66611` | Phase 1, PR 2: sign-in, with every API route protected by default (#7) |
 
-## 2026-11-19 (PRs #37, #38, #89, #90, #91)
+## 2026-11-19 (PRs #37, #38, #89, #90, #91, #92)
 
 The squash merges of these pull requests were made without the maintainer's
 `Signed-off-by:` line in the commit message (not through `/signoff`, which adds
-it). `scripts/bootstrap.sh` listed them on 2026-11-19.
+it). `scripts/bootstrap.sh` listed the first five on 2026-11-19; #92 merged the
+same way minutes later.
 
 | Commit | Subject |
 | --- | --- |
@@ -44,3 +45,4 @@ it). `scripts/bootstrap.sh` listed them on 2026-11-19.
 | `c94f91bb23dc52470bf2773c94ded034876e4643` | Publish arm64 images, each platform built natively (ADR 0028) (#89) |
 | `515c02e881bad260de1b2e888db199fcd195e4e0` | Require "Container image (arm64)" on main (#90) |
 | `410d13b8e94127bbd252bf16c21885e669530348` | Release candidates: X.Y.Z-rc.N, never latest (ADR 0029) (#91) |
+| `ed4256454199fad7b1684b207e6a9a6dc686408b` | Release 0.5.2-rc.1 (#92) |
