@@ -203,9 +203,9 @@ jobs:
           GRYPE: ${{ steps.grype.outputs.cmd }}
         run: '"${GRYPE}" docker:dreadovania:ci --only-fixed --fail-on high'
 
-  # The same build and checks on a native arm64 runner (ADR 0028). Separate from
-  # "Container image" so that required check keeps its name. Its layer cache has
-  # its own scope, so the two platforms don't evict each other's.
+  # The same build and checks on a native arm64 runner (ADR 0028), required on main
+  # like "Container image". Its layer cache has its own scope, so the two
+  # platforms don't evict each other's.
   image-arm64:
     name: Container image (arm64)
     # harden-runner is omitted until its arm64 runner support is confirmed.
