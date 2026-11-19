@@ -19,7 +19,7 @@ supersedes the old one; don't rewrite history.
 | [0011](0011-phase1-plan.md) | Phase 1 plan: jobs, generation API, sign-in, first screens | Accepted |
 | [0012](0012-signoff-by-comment.md) | Sign off and merge with a `/signoff` comment | Accepted |
 | [0013](0013-phase2-patching.md) | Phase 2 plan: patching seeds with the user's own game files | Accepted |
-| [0014](0014-release-by-comment.md) | Release with a `/release` comment | Accepted (amended by 0015) |
+| [0014](0014-release-by-comment.md) | Release with a `/release` comment | Accepted (amended by 0015, 0029) |
 | [0015](0015-release-app.md) | Release tags are created by the maintainer's release app | Accepted |
 | [0016](0016-phase3-send-to-switch.md) | Phase 3 plan: sending a patched seed to the Switch over FTP | Accepted |
 | [0017](0017-device-pairing.md) | Pairing the Switch app: codes, device tokens and what they may do | Accepted |
@@ -34,3 +34,4 @@ supersedes the old one; don't rewrite history.
 | [0026](0026-extra-mods.md) | Extra mods layered onto each seed | Proposed; Context and decisions 5–6 superseded by 0027 |
 | [0027](0027-suit-mods-measured.md) | Extra mods, measured: what a suit-colour mod replaces, and a "suit only" choice | Proposed |
 | [0028](0028-publish-arm64.md) | Publish arm64 images: build py-tegra-swizzle from source, each platform natively | Proposed |
+| [0029](0029-release-candidates.md) | Release candidates: `X.Y.Z-rc.N`, never `latest` | Proposed |

@@ -69,8 +69,26 @@ test("a version must be new and newer than every release", () => {
   assert.equal(checkVersion("0.10.1", tags), null);
   assert.equal(checkVersion("1.0.0", []), null);
   assert.match(checkVersion("0.2.0", tags), /already exists/);
-  assert.match(checkVersion("0.9.0", tags), /isn't newer than the latest release, v0\.10\.0/);
+  assert.match(checkVersion("0.9.0", tags), /isn't newer than the latest version tag, v0\.10\.0/);
   assert.ok(compareVersions("0.10.0", "0.9.9") > 0); // numeric, not text, comparison
+});
+
+test("release candidates are read, ordered and checked (ADR 0029)", () => {
+  assert.equal(readVersion('[project]\nversion = "0.5.2-rc.1"\n', "pyproject.toml"), "0.5.2-rc.1");
+  assert.throws(() => readVersion('[project]\nversion = "0.5.2rc1"\n', "pyproject.toml"), /1\.2\.3-rc\.1/);
+  assert.throws(() => readVersion('[project]\nversion = "0.5.2-beta.1"\n', "pyproject.toml"), /1\.2\.3-rc\.1/);
+  // A candidate sorts before its release, after the previous release, numerically.
+  assert.ok(compareVersions("0.5.2-rc.1", "0.5.2") < 0);
+  assert.ok(compareVersions("0.5.2-rc.1", "0.5.1") > 0);
+  assert.ok(compareVersions("0.5.2-rc.10", "0.5.2-rc.9") > 0);
+  assert.equal(compareVersions("0.5.2", "0.5.2"), 0);
+  const tags = ["v0.5.0", "v0.5.1"];
+  assert.equal(checkVersion("0.5.2-rc.1", tags), null);
+  assert.equal(checkVersion("0.5.2", [...tags, "v0.5.2-rc.1"]), null);
+  assert.equal(checkVersion("0.5.2-rc.2", [...tags, "v0.5.2-rc.1"]), null);
+  assert.match(checkVersion("0.5.2-rc.1", [...tags, "v0.5.2-rc.2"]), /isn't newer.*v0\.5\.2-rc\.2/);
+  assert.match(checkVersion("0.5.1-rc.1", tags), /isn't newer.*v0\.5\.1/);
+  assert.match(checkVersion("0.5.2-rc.1", [...tags, "v0.5.2"]), /isn't newer.*v0\.5\.2$/);
 });
 
 test("the tested commit's checks must all have passed", () => {
