@@ -52,8 +52,8 @@ a test build on x86-64, with the build tools pinned below.
    - **In releases: no cache at all,** as before, so nothing from a PR run can
      reach a published image. Native builds keep releases fast without it.
 5. **CI builds and smoke-tests arm64 on every PR,** as "Container image (arm64)",
-   next to the required "Container image". The smoke test also loads the compiled
-   module and round-trips data through it. The weekly arm64 test build stays, to
+   a required check like "Container image" (`.github/rulesets/protect-main.json`).
+   The smoke test also loads the compiled module and round-trips data through it. The weekly arm64 test build stays, to
    catch upstream drift between PRs, and only runs on `main` report to its
    tracking issue.
 
@@ -67,6 +67,7 @@ a test build on x86-64, with the build tools pinned below.
 - The build tools are pinned by version but not by hash: uv's build constraints
   don't take hashes. A compromised release of one of those four versions would
   reach the arm64 build stage, and only there.
-- "Container image (arm64)" isn't a required check. Adding it to
-  `.github/rulesets/protect-main.json` is the maintainer's decision.
+- "Container image (arm64)" is required on `main`, so a PR that breaks the arm64
+  image can't merge. The ruleset file is the proposal; the maintainer applies it
+  in the repository's settings.
 - Releases need GitHub's arm64 runners, which are free for public repositories.
