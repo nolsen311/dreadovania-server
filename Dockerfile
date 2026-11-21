@@ -7,7 +7,7 @@
 FROM ghcr.io/astral-sh/uv:0.13.8@sha256:5cc1805e2426484abca4ad46ea783bab281fdb225fd82d8ce6d66a81254bac85 AS uv
 
 # ---- build: resolve the locked dependencies into a virtualenv ----
-FROM python:3.13-slim-trixie@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637ea3e15580525bc AS build
+FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS build
 
 COPY --from=uv /uv /usr/local/bin/uv
 
@@ -55,7 +55,7 @@ RUN rm -rf /app/.venv/lib/python3.13/site-packages/randovania/data/ClarisPrimeRa
  && ! find /app/.venv -type f \( -iname '*.exe' -o -iname '*.dll' \) | grep .
 
 # ---- runtime: no build tools, no uv, no source tree ----
-FROM python:3.13-slim-trixie@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637ea3e15580525bc AS runtime
+FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS runtime
 
 LABEL org.opencontainers.image.title="Dreadovania Server" \
       org.opencontainers.image.description="Self-hosted server for Metroid Dread Randovania seeds. Contains no game content." \
