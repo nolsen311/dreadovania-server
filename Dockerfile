@@ -4,7 +4,7 @@
 # for linux/amd64 and linux/arm64 (ADR 0003). Dependabot updates the digests.
 # Both stages must use the same Python image: the virtualenv links to its interpreter.
 
-FROM ghcr.io/astral-sh/uv:0.13.8@sha256:5cc1805e2426484abca4ad46ea783bab281fdb225fd82d8ce6d66a81254bac85 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
 
 # ---- build: resolve the locked dependencies into a virtualenv ----
 FROM python:3.13-slim-trixie@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637ea3e15580525bc AS build
